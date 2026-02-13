@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperless-telegram-bot"
+version = "0.1.0"
+description = "Manage Paperless-NGX documents via Telegram bot. Upload, search, download, and organize."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "Sergio Fernández", email = "sergio@geiser.cloud"}
+]
+keywords = ["paperless", "telegram", "documents", "ocr", "paperless-ngx"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "python-telegram-bot>=22.6",
+    "httpx>=0.28.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.9.0",
+    "pre-commit>=4.0.0",
+    "respx>=0.22.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/GeiserX/paperless-telegram-bot"
+Repository = "https://github.com/GeiserX/paperless-telegram-bot"
+Issues = "https://github.com/GeiserX/paperless-telegram-bot/issues"
+
+[project.scripts]
+paperless-bot = "paperless_bot.__main__:main"
+
+[tool.setuptools]
+packages = ["paperless_bot"]
+package-dir = {"paperless_bot" = "src/paperless_bot"}
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults (FastAPI depends on this)
+    "SIM102", # collapsible-if (readability preference)
+    "SIM108", # use ternary operator (readability preference)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["paperless_bot"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
