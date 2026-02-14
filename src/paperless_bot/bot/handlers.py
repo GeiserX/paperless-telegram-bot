@@ -71,6 +71,10 @@ class PaperlessBot:
         # Per-chat search query (for pagination, since callback_data has 64-byte limit)
         self.search_queries: dict[int, str] = {}
 
+        # Per-chat state for creating new metadata items
+        # chat_id -> {"type": "tag"|"corr"|"dtype", "doc_id": int}
+        self.pending_creates: dict[int, dict] = {}
+
     def _is_authorized(self, user_id: int) -> bool:
         """Check if a user is authorized to use the bot."""
         if not self.config.telegram_allowed_users:
@@ -264,19 +268,72 @@ class PaperlessBot:
             await _safe_edit(status_msg, "Upload failed. Check logs.")
 
     # =========================================================================
-    # TEXT MESSAGE HANDLER (search)
+    # TEXT MESSAGE HANDLER (search or new metadata name)
     # =========================================================================
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle plain text messages as search queries."""
+        """Handle plain text messages: either a new metadata name or a search query."""
         if not await self._check_auth(update):
             return
 
-        query = update.message.text.strip()
-        if not query:
+        chat_id = update.effective_chat.id
+        text = update.message.text.strip()
+        if not text:
             return
 
-        await self._do_search(update, context, query, page=1)
+        # Check if we're waiting for a new metadata item name
+        pending = self.pending_creates.pop(chat_id, None)
+        if pending:
+            await self._create_new_item(update, context, chat_id, text, pending)
+            return
+
+        # Otherwise treat as search
+        await self._do_search(update, context, text, page=1)
+
+    async def _create_new_item(self, update, context, chat_id: int, name: str, pending: dict):
+        """Create a new tag/correspondent/document type from user text input."""
+        item_type = pending["type"]
+        doc_id = pending["doc_id"]
+
+        try:
+            if item_type == "tag":
+                tag = await self.client.create_tag(name)
+                # Auto-select the new tag
+                upload = self.pending_uploads.get(chat_id)
+                if upload:
+                    upload.setdefault("selected_tags", set()).add(tag.id)
+                tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+                selected = upload.get("selected_tags", set()) if upload else set()
+                await update.message.reply_text(
+                    f"Tag *{tag.name}* created and selected.\n\nSelect tags:",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=build_tag_selection_keyboard(tags, selected, doc_id),
+                )
+
+            elif item_type == "corr":
+                corr = await self.client.create_correspondent(name)
+                await self.client.update_document(doc_id, correspondent=corr.id)
+                await update.message.reply_text(
+                    f"Correspondent *{corr.name}* created and assigned.\n\nContinue setting metadata?",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=build_metadata_keyboard(doc_id),
+                )
+
+            elif item_type == "dtype":
+                dt = await self.client.create_document_type(name)
+                await self.client.update_document(doc_id, document_type=dt.id)
+                await update.message.reply_text(
+                    f"Document type *{dt.name}* created and assigned.\n\nContinue setting metadata?",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=build_metadata_keyboard(doc_id),
+                )
+
+        except Exception:
+            logger.exception(f"Failed to create {item_type}: {name}")
+            await update.message.reply_text(
+                f"Failed to create {item_type}. Check logs.",
+                reply_markup=build_metadata_keyboard(doc_id),
+            )
 
     async def _do_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query: str, page: int):
         """Execute a document search and display results."""
@@ -334,6 +391,13 @@ class PaperlessBot:
         # Tag confirm
         elif data.startswith("tagok:"):
             await self._handle_tag_confirm(update, context, chat_id, data)
+        # New tag/correspondent/document type
+        elif data.startswith("newtag:"):
+            await self._handle_new_item(update, context, chat_id, data, "tag")
+        elif data.startswith("newcorr:"):
+            await self._handle_new_item(update, context, chat_id, data, "corr")
+        elif data.startswith("newdtype:"):
+            await self._handle_new_item(update, context, chat_id, data, "dtype")
         # Correspondent selection
         elif data.startswith("corr:"):
             await self._handle_single_select(update, context, chat_id, data, "correspondent")
@@ -354,6 +418,19 @@ class PaperlessBot:
         elif data.startswith("sp:"):
             page = int(data.split(":")[1])
             await self._handle_search_page(update, context, chat_id, page)
+
+    # --- New item creation ---
+
+    async def _handle_new_item(self, update, context, chat_id: int, data: str, item_type: str):
+        """Prompt user to send the name for a new tag/correspondent/document type."""
+        query = update.callback_query
+        doc_id = int(data.split(":")[1])
+
+        self.pending_creates[chat_id] = {"type": item_type, "doc_id": doc_id}
+
+        labels = {"tag": "tag", "corr": "correspondent", "dtype": "document type"}
+        label = labels[item_type]
+        await query.edit_message_text(f"Send the name for the new {label}:")
 
     # --- Metadata flow ---
 
@@ -618,7 +695,7 @@ def create_bot(config: Config) -> Application:
     app.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, bot.handle_photo))
 
-    # Text message handler (search) \u2014 must be last
+    # Text message handler (search or new metadata name) \u2014 must be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     logger.info("Telegram bot configured")
