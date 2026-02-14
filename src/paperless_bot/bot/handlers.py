@@ -88,6 +88,10 @@ class PaperlessBot:
             return False
         return True
 
+    def _document_url(self, doc_id: int) -> str:
+        """Build a user-facing URL for a Paperless document."""
+        return f"{self.config.paperless_public_url}/documents/{doc_id}/details"
+
     # =========================================================================
     # COMMAND HANDLERS
     # =========================================================================
@@ -526,7 +530,11 @@ class PaperlessBot:
 
         elif action == "done":
             self.pending_uploads.pop(chat_id, None)
-            await query.edit_message_text("Metadata saved.")
+            doc_url = self._document_url(doc_id)
+            await query.edit_message_text(
+                f"Metadata saved.\n\n[Open in Paperless]({doc_url})",
+                parse_mode=ParseMode.MARKDOWN,
+            )
 
     async def _handle_tag_toggle(self, update, context, chat_id: int, data: str):
         """Handle tag checkbox toggle."""
@@ -749,11 +757,11 @@ def create_bot(config: Config) -> Application:
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(bot.handle_callback))
 
-    # Document/photo handlers — must come before text handler
+    # Document/photo handlers \u2014 must come before text handler
     app.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, bot.handle_photo))
 
-    # Text message handler (search or new metadata name) — must be last
+    # Text message handler (search or new metadata name) \u2014 must be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     logger.info("Telegram bot configured")
