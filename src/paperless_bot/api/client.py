@@ -59,7 +59,7 @@ class DocumentType:
 class PaperlessClient:
     """Async HTTP client for Paperless-NGX API."""
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, *, inbox_tag_name: str | None = None):
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -72,30 +72,50 @@ class PaperlessClient:
         self._correspondents_cache: dict[int, str] = {}
         self._doc_types_cache: dict[int, str] = {}
         self._inbox_tag_id: int | None = None
+        self._inbox_tag_name_override = inbox_tag_name
 
     async def close(self):
         await self._client.aclose()
 
     async def refresh_cache(self):
         """Populate/refresh name caches from Paperless API."""
-        tags = await self.get_tags()
-        self._tags_cache = {t.id: t.name for t in tags}
+        # Fetch raw tag data to access is_inbox_tag field
+        raw_tags = await self._get_all_pages("/api/tags/")
+        self._tags_cache = {t["id"]: t["name"] for t in raw_tags}
+
         correspondents = await self.get_correspondents()
         self._correspondents_cache = {c.id: c.name for c in correspondents}
         doc_types = await self.get_document_types()
         self._doc_types_cache = {dt.id: dt.name for dt in doc_types}
 
-        # Auto-detect inbox tag
-        for tag in tags:
-            if tag.name.lower() == "inbox":
-                self._inbox_tag_id = tag.id
-                break
+        # Auto-detect inbox tag:
+        # 1. If explicit name override is set, find by name
+        # 2. Otherwise, find the tag with is_inbox_tag=true from the API
+        self._inbox_tag_id = None
+        if self._inbox_tag_name_override:
+            for t in raw_tags:
+                if t["name"].lower() == self._inbox_tag_name_override.lower():
+                    self._inbox_tag_id = t["id"]
+                    break
+            if self._inbox_tag_id:
+                logger.info(
+                    "Inbox tag found by name override: %s (id=%d)", self._inbox_tag_name_override, self._inbox_tag_id
+                )
+            else:
+                logger.warning("INBOX_TAG='%s' not found in Paperless", self._inbox_tag_name_override)
+        else:
+            for t in raw_tags:
+                if t.get("is_inbox_tag"):
+                    self._inbox_tag_id = t["id"]
+                    logger.info("Inbox tag auto-detected: %s (id=%d)", t["name"], t["id"])
+                    break
 
         logger.info(
-            "Cache refreshed: %d tags, %d correspondents, %d document types",
+            "Cache refreshed: %d tags, %d correspondents, %d document types (inbox_tag_id=%s)",
             len(self._tags_cache),
             len(self._correspondents_cache),
             len(self._doc_types_cache),
+            self._inbox_tag_id,
         )
 
     async def _ensure_cache(self):

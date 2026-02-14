@@ -42,6 +42,14 @@ class Config:
         # =====================================================================
         self.max_search_results = int(os.getenv("MAX_SEARCH_RESULTS", "10"))
 
+        # Inbox workflow: remove inbox tag when user clicks "Done" in metadata flow.
+        # Set to "false" to disable if you don't use an inbox tag.
+        self.remove_inbox_on_done = os.getenv("REMOVE_INBOX_ON_DONE", "true").lower() in ("true", "1", "yes")
+
+        # Optional: explicit inbox tag name override.
+        # If not set, auto-detects the tag with is_inbox_tag=true from Paperless API.
+        self.inbox_tag = os.getenv("INBOX_TAG", "").strip() or None
+
         # =====================================================================
         # LOGGING
         # =====================================================================

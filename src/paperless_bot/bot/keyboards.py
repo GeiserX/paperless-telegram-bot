@@ -133,10 +133,16 @@ def build_search_results_keyboard(
     return InlineKeyboardMarkup(buttons)
 
 
-def build_document_list_keyboard(documents: list[Document]) -> InlineKeyboardMarkup:
-    """Build keyboard for a document list (recent, inbox)."""
+def build_document_list_keyboard(documents: list[Document], *, inbox_mode: bool = False) -> InlineKeyboardMarkup:
+    """Build keyboard for a document list (recent, inbox).
+
+    When inbox_mode=True, each document gets a "Mark Reviewed" button alongside download.
+    """
     buttons = []
     for doc in documents:
-        label = f"Download: {doc.title[:40]}"
-        buttons.append([InlineKeyboardButton(label, callback_data=f"dl:{doc.id}")])
+        title = doc.title[:30] if inbox_mode else doc.title[:40]
+        row = [InlineKeyboardButton(f"Download: {title}", callback_data=f"dl:{doc.id}")]
+        if inbox_mode:
+            row.append(InlineKeyboardButton("Reviewed", callback_data=f"rev:{doc.id}"))
+        buttons.append(row)
     return InlineKeyboardMarkup(buttons)
