@@ -531,6 +531,10 @@ class PaperlessBot:
         elif action == "done":
             self.pending_uploads.pop(chat_id, None)
             doc_url = self._document_url(doc_id)
+            try:
+                await self.client.remove_inbox_tag(doc_id)
+            except Exception:
+                logger.exception("Failed to remove Inbox tag from document %d", doc_id)
             await query.edit_message_text(
                 f"Metadata saved.\n\n[Open in Paperless]({doc_url})",
                 parse_mode=ParseMode.MARKDOWN,

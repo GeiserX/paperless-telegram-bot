@@ -243,6 +243,19 @@ class PaperlessClient:
         data = resp.json()
         return [self._parse_document(d) for d in data["results"]], data["count"]
 
+    async def remove_inbox_tag(self, doc_id: int) -> None:
+        """Remove the Inbox tag from a document if it has one."""
+        await self._ensure_cache()
+        if not self._inbox_tag_id:
+            return
+        resp = await self._client.get(f"/api/documents/{doc_id}/")
+        resp.raise_for_status()
+        current_tags = resp.json().get("tags", [])
+        if self._inbox_tag_id in current_tags:
+            current_tags.remove(self._inbox_tag_id)
+            await self._client.patch(f"/api/documents/{doc_id}/", json={"tags": current_tags})
+            logger.info("Removed Inbox tag from document %d", doc_id)
+
     # --- Tags ---
 
     async def get_tags(self) -> list[Tag]:
