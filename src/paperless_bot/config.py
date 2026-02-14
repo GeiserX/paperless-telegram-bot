@@ -1,5 +1,4 @@
-"""
-Configuration management for Paperless Telegram Bot.
+"""Configuration management for Paperless Telegram Bot.
 Loads and validates settings from environment variables.
 """
 
@@ -34,6 +33,10 @@ class Config:
         self.paperless_url = self._get_required_env("PAPERLESS_URL")
         self.paperless_token = self._get_required_env("PAPERLESS_TOKEN")
 
+        # Public URL for user-facing links (e.g. Tailscale hostname).
+        # Falls back to PAPERLESS_URL if not set.
+        self.paperless_public_url = os.getenv("PAPERLESS_PUBLIC_URL", self.paperless_url).rstrip("/")
+
         # =====================================================================
         # BEHAVIOR
         # =====================================================================
@@ -56,7 +59,7 @@ class Config:
         if self.telegram_allowed_users:
             logger.info(f"Bot restricted to {len(self.telegram_allowed_users)} allowed user(s)")
         else:
-            logger.warning("TELEGRAM_ALLOWED_USERS is empty — bot is open to anyone!")
+            logger.warning("TELEGRAM_ALLOWED_USERS is empty \u2014 bot is open to anyone!")
 
     def _get_required_env(self, key: str) -> str:
         """Get a required environment variable."""
