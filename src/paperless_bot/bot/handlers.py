@@ -414,6 +414,9 @@ class PaperlessBot:
             await self._handle_new_item(update, context, chat_id, data, "corr")
         elif data.startswith("newdtype:"):
             await self._handle_new_item(update, context, chat_id, data, "dtype")
+        # Cancel new item creation
+        elif data.startswith("ccr:"):
+            await self._handle_cancel_create(update, context, chat_id, data)
         # Correspondent selection
         elif data.startswith("corr:"):
             await self._handle_single_select(update, context, chat_id, data, "correspondent")
@@ -446,7 +449,46 @@ class PaperlessBot:
 
         labels = {"tag": "tag", "corr": "correspondent", "dtype": "document type"}
         label = labels[item_type]
-        await query.edit_message_text(f"Send the name for the new {label}:")
+
+        cancel_keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data=f"ccr:{item_type}:{doc_id}")]]
+        )
+        await query.edit_message_text(
+            f"Type the name for the new {label} as a text message:",
+            reply_markup=cancel_keyboard,
+        )
+
+    async def _handle_cancel_create(self, update, context, chat_id: int, data: str):
+        """Cancel pending new item creation and return to the selection screen."""
+        query = update.callback_query
+        parts = data.split(":")
+        item_type = parts[1]
+        doc_id = int(parts[2])
+
+        # Clear pending state
+        self.pending_creates.pop(chat_id, None)
+
+        # Return to the appropriate selection screen
+        await self.client._ensure_cache()
+        if item_type == "tag":
+            tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+            selected = self.pending_uploads.get(chat_id, {}).get("selected_tags", set())
+            await query.edit_message_text(
+                "Select tags:",
+                reply_markup=build_tag_selection_keyboard(tags, selected, doc_id),
+            )
+        elif item_type == "corr":
+            correspondents = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
+            await query.edit_message_text(
+                "Select correspondent:",
+                reply_markup=build_single_select_keyboard(correspondents, "corr", doc_id),
+            )
+        elif item_type == "dtype":
+            doc_types = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
+            await query.edit_message_text(
+                "Select document type:",
+                reply_markup=build_single_select_keyboard(doc_types, "dtype", doc_id),
+            )
 
     # --- Metadata flow ---
 
