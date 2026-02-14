@@ -25,6 +25,8 @@ def test_default_values():
     assert config.max_search_results == 10
     assert config.health_port == 8080
     assert config.telegram_allowed_users == set()
+    assert config.remove_inbox_on_done is True
+    assert config.inbox_tag is None
 
 
 def test_allowed_users_parsing(monkeypatch):
@@ -61,3 +63,27 @@ def test_log_level_warn_alias(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "WARN")
     config = Config()
     assert config.log_level == 30  # logging.WARNING
+
+
+def test_remove_inbox_on_done_disabled(monkeypatch):
+    monkeypatch.setenv("REMOVE_INBOX_ON_DONE", "false")
+    config = Config()
+    assert config.remove_inbox_on_done is False
+
+
+def test_remove_inbox_on_done_enabled(monkeypatch):
+    monkeypatch.setenv("REMOVE_INBOX_ON_DONE", "true")
+    config = Config()
+    assert config.remove_inbox_on_done is True
+
+
+def test_inbox_tag_override(monkeypatch):
+    monkeypatch.setenv("INBOX_TAG", "Para Revisar")
+    config = Config()
+    assert config.inbox_tag == "Para Revisar"
+
+
+def test_inbox_tag_empty(monkeypatch):
+    monkeypatch.setenv("INBOX_TAG", "  ")
+    config = Config()
+    assert config.inbox_tag is None
