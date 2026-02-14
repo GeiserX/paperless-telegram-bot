@@ -116,3 +116,53 @@ async def test_auth_header(client):
 
     await client.get_statistics()
     assert route.calls[0].request.headers["authorization"] == "Token test-token"
+
+
+def _mock_cache_endpoints(inbox_tag: bool = False):
+    """Set up mock responses for cache refresh endpoints."""
+    tags = [
+        {"id": 1, "name": "invoice", "is_inbox_tag": False},
+        {"id": 2, "name": "Inbox", "is_inbox_tag": inbox_tag},
+    ]
+    respx.get("http://localhost:8000/api/tags/").mock(return_value=Response(200, json={"results": tags, "next": None}))
+    respx.get("http://localhost:8000/api/correspondents/").mock(
+        return_value=Response(200, json={"results": [], "next": None})
+    )
+    respx.get("http://localhost:8000/api/document_types/").mock(
+        return_value=Response(200, json={"results": [], "next": None})
+    )
+
+
+@respx.mock
+async def test_inbox_tag_autodetect_by_api_field(client):
+    """Inbox tag detected via is_inbox_tag=true, not name matching."""
+    _mock_cache_endpoints(inbox_tag=True)
+    await client.refresh_cache()
+    assert client._inbox_tag_id == 2
+
+
+@respx.mock
+async def test_inbox_tag_not_detected_without_flag(client):
+    """Tag named 'Inbox' is NOT detected if is_inbox_tag=false."""
+    _mock_cache_endpoints(inbox_tag=False)
+    await client.refresh_cache()
+    assert client._inbox_tag_id is None
+
+
+@respx.mock
+async def test_inbox_tag_name_override():
+    """Explicit INBOX_TAG name override finds by name regardless of is_inbox_tag."""
+    client = PaperlessClient("http://localhost:8000", "test-token", inbox_tag_name="invoice")
+    tags = [
+        {"id": 1, "name": "invoice", "is_inbox_tag": False},
+        {"id": 2, "name": "Inbox", "is_inbox_tag": True},
+    ]
+    respx.get("http://localhost:8000/api/tags/").mock(return_value=Response(200, json={"results": tags, "next": None}))
+    respx.get("http://localhost:8000/api/correspondents/").mock(
+        return_value=Response(200, json={"results": [], "next": None})
+    )
+    respx.get("http://localhost:8000/api/document_types/").mock(
+        return_value=Response(200, json={"results": [], "next": None})
+    )
+    await client.refresh_cache()
+    assert client._inbox_tag_id == 1  # Found "invoice" by name, not "Inbox"
