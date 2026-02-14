@@ -62,7 +62,7 @@ class PaperlessBot:
 
     def __init__(self, config: Config):
         self.config = config
-        self.client = PaperlessClient(config.paperless_url, config.paperless_token)
+        self.client = PaperlessClient(config.paperless_url, config.paperless_token, inbox_tag_name=config.inbox_tag)
 
         # Per-chat state for post-upload metadata assignment
         # chat_id -> {"doc_id": int, "selected_tags": set[int]}
@@ -91,6 +91,14 @@ class PaperlessBot:
     def _document_url(self, doc_id: int) -> str:
         """Build a user-facing URL for a Paperless document."""
         return f"{self.config.paperless_public_url}/documents/{doc_id}/details"
+
+    def _user_visible_tags(self) -> list[tuple[int, str]]:
+        """Return sorted tags excluding the auto-managed inbox tag."""
+        inbox_id = self.client._inbox_tag_id
+        return sorted(
+            ((tid, name) for tid, name in self.client._tags_cache.items() if tid != inbox_id),
+            key=lambda x: x[1],
+        )
 
     # =========================================================================
     # COMMAND HANDLERS
@@ -170,7 +178,7 @@ class PaperlessBot:
             await update.message.reply_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=build_document_list_keyboard(documents),
+                reply_markup=build_document_list_keyboard(documents, inbox_mode=True),
             )
         except Exception:
             logger.exception("Failed to fetch inbox")
@@ -322,7 +330,7 @@ class PaperlessBot:
                 upload = self.pending_uploads.get(chat_id)
                 if upload:
                     upload.setdefault("selected_tags", set()).add(tag.id)
-                tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+                tags = self._user_visible_tags()
                 selected = upload.get("selected_tags", set()) if upload else set()
                 await update.message.reply_text(
                     f"Tag *{tag.name}* created and selected.\n\nSelect tags:",
@@ -433,6 +441,10 @@ class PaperlessBot:
         # Document type pagination
         elif data.startswith("dtypep:"):
             await self._handle_select_page(update, context, chat_id, data, "dtype")
+        # Mark as reviewed (remove inbox tag)
+        elif data.startswith("rev:"):
+            doc_id = int(data.split(":")[1])
+            await self._handle_mark_reviewed(update, context, chat_id, doc_id)
         # Download
         elif data.startswith("dl:"):
             doc_id = int(data.split(":")[1])
@@ -475,7 +487,7 @@ class PaperlessBot:
         # Return to the appropriate selection screen
         await self.client._ensure_cache()
         if item_type == "tag":
-            tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+            tags = self._user_visible_tags()
             selected = self.pending_uploads.get(chat_id, {}).get("selected_tags", set())
             await query.edit_message_text(
                 "Select tags:",
@@ -505,7 +517,7 @@ class PaperlessBot:
 
         if action == "tags":
             await self.client._ensure_cache()
-            tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+            tags = self._user_visible_tags()
             selected = self.pending_uploads.get(chat_id, {}).get("selected_tags", set())
             await query.edit_message_text(
                 "Select tags:",
@@ -531,10 +543,11 @@ class PaperlessBot:
         elif action == "done":
             self.pending_uploads.pop(chat_id, None)
             doc_url = self._document_url(doc_id)
-            try:
-                await self.client.remove_inbox_tag(doc_id)
-            except Exception:
-                logger.exception("Failed to remove Inbox tag from document %d", doc_id)
+            if self.config.remove_inbox_on_done:
+                try:
+                    await self.client.remove_inbox_tag(doc_id)
+                except Exception:
+                    logger.exception("Failed to remove Inbox tag from document %d", doc_id)
             await query.edit_message_text(
                 f"Metadata saved.\n\n[Open in Paperless]({doc_url})",
                 parse_mode=ParseMode.MARKDOWN,
@@ -559,7 +572,7 @@ class PaperlessBot:
             selected.discard(tag_id)
         pending["selected_tags"] = selected
 
-        tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+        tags = self._user_visible_tags()
         # Figure out current page from tag position
         tag_ids = [t[0] for t in tags]
         try:
@@ -581,7 +594,7 @@ class PaperlessBot:
 
         pending = self.pending_uploads.get(chat_id)
         selected = pending.get("selected_tags", set()) if pending else set()
-        tags = sorted(self.client._tags_cache.items(), key=lambda x: x[1])
+        tags = self._user_visible_tags()
 
         await query.edit_message_reply_markup(
             reply_markup=build_tag_selection_keyboard(tags, selected, doc_id, page=page),
@@ -662,6 +675,23 @@ class PaperlessBot:
         await query.edit_message_reply_markup(
             reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page),
         )
+
+    # --- Mark reviewed ---
+
+    async def _handle_mark_reviewed(self, update, context, chat_id: int, doc_id: int):
+        """Remove the inbox tag from a document (mark as reviewed)."""
+        query = update.callback_query
+        try:
+            await self.client.remove_inbox_tag(doc_id)
+            doc = await self.client.get_document(doc_id)
+            doc_url = self._document_url(doc_id)
+            await query.edit_message_text(
+                f"*{doc.title}* marked as reviewed.\n\n[Open in Paperless]({doc_url})",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        except Exception:
+            logger.exception("Failed to mark document %d as reviewed", doc_id)
+            await query.edit_message_text(f"Failed to mark document #{doc_id} as reviewed.")
 
     # --- Download ---
 
