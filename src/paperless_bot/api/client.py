@@ -5,11 +5,14 @@ All Paperless API interaction goes through this module.
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_DUPLICATE_DOC_ID_RE = re.compile(r"#(\d+)")
 
 
 @dataclass
@@ -24,6 +27,15 @@ class Document:
     created: str
     added: str
     content: str | None = None
+
+
+@dataclass
+class TaskResult:
+    """Result of a Paperless-NGX upload task."""
+
+    status: str  # "success", "duplicate", "failed", "timeout"
+    doc_id: int | None = None
+    message: str | None = None
 
 
 @dataclass
@@ -150,8 +162,8 @@ class PaperlessClient:
         resp.raise_for_status()
         return resp.text.strip().strip('"')
 
-    async def wait_for_task(self, task_id: str, timeout: int = 60) -> int | None:
-        """Poll for an upload task to complete. Returns the document ID or None."""
+    async def wait_for_task(self, task_id: str, timeout: int = 60) -> TaskResult:
+        """Poll for an upload task to complete. Returns a TaskResult."""
         for _ in range(timeout // 2):
             await asyncio.sleep(2)
             try:
@@ -161,13 +173,41 @@ class PaperlessClient:
                 if tasks:
                     task = tasks[0] if isinstance(tasks, list) else tasks
                     status = task.get("status")
+                    result_msg = str(task.get("result") or "")
+
                     if status == "SUCCESS":
-                        return task.get("related_document")
+                        return TaskResult(
+                            status="success",
+                            doc_id=task.get("related_document"),
+                        )
+
                     if status in ("FAILURE", "REVOKED"):
-                        logger.error("Task %s failed: %s", task_id, task.get("result"))
-                        return None
+                        # Detect duplicate uploads
+                        if "duplicate" in result_msg.lower():
+                            existing_id = self._extract_duplicate_id(result_msg)
+                            return TaskResult(
+                                status="duplicate",
+                                doc_id=existing_id,
+                                message=result_msg,
+                            )
+                        logger.error("Task %s failed: %s", task_id, result_msg)
+                        return TaskResult(status="failed", message=result_msg)
+
             except Exception:
                 logger.warning("Error polling task %s", task_id, exc_info=True)
+
+        return TaskResult(status="timeout")
+
+    @staticmethod
+    def _extract_duplicate_id(result_msg: str) -> int | None:
+        """Extract the existing document ID from a duplicate failure message.
+
+        Paperless returns messages like:
+          'Not consuming file.pdf: It is a duplicate of Invoice April (#42).'
+        """
+        match = _DUPLICATE_DOC_ID_RE.search(result_msg)
+        if match:
+            return int(match.group(1))
         return None
 
     async def download_document(self, doc_id: int) -> tuple[bytes, str]:
