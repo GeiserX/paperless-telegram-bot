@@ -210,6 +210,15 @@ class PaperlessClient:
         results = await self._get_all_pages("/api/tags/")
         return [Tag(id=t["id"], name=t["name"]) for t in results]
 
+    async def create_tag(self, name: str) -> Tag:
+        """Create a new tag. Returns the created Tag."""
+        resp = await self._client.post("/api/tags/", json={"name": name})
+        resp.raise_for_status()
+        data = resp.json()
+        tag = Tag(id=data["id"], name=data["name"])
+        self._tags_cache[tag.id] = tag.name
+        return tag
+
     # --- Correspondents ---
 
     async def get_correspondents(self) -> list[Correspondent]:
@@ -217,12 +226,30 @@ class PaperlessClient:
         results = await self._get_all_pages("/api/correspondents/")
         return [Correspondent(id=c["id"], name=c["name"]) for c in results]
 
+    async def create_correspondent(self, name: str) -> Correspondent:
+        """Create a new correspondent. Returns the created Correspondent."""
+        resp = await self._client.post("/api/correspondents/", json={"name": name})
+        resp.raise_for_status()
+        data = resp.json()
+        corr = Correspondent(id=data["id"], name=data["name"])
+        self._correspondents_cache[corr.id] = corr.name
+        return corr
+
     # --- Document Types ---
 
     async def get_document_types(self) -> list[DocumentType]:
         """Get all document types."""
         results = await self._get_all_pages("/api/document_types/")
         return [DocumentType(id=dt["id"], name=dt["name"]) for dt in results]
+
+    async def create_document_type(self, name: str) -> DocumentType:
+        """Create a new document type. Returns the created DocumentType."""
+        resp = await self._client.post("/api/document_types/", json={"name": name})
+        resp.raise_for_status()
+        data = resp.json()
+        dt = DocumentType(id=data["id"], name=data["name"])
+        self._doc_types_cache[dt.id] = dt.name
+        return dt
 
     # --- Stats ---
 
