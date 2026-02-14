@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paperless-telegram-bot"
-version = "0.5.0"
+version = "0.6.0"
 description = "Manage Paperless-NGX documents via Telegram bot. Upload, search, download, and organize."
 readme = "README.md"
 requires-python = ">=3.11"
