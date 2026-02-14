@@ -59,7 +59,13 @@ def build_tag_selection_keyboard(
     if nav_row:
         buttons.append(nav_row)
 
-    buttons.append([InlineKeyboardButton("Confirm Tags", callback_data=f"tagok:{doc_id}")])
+    # Action row: + New and Confirm
+    buttons.append(
+        [
+            InlineKeyboardButton("+ New Tag", callback_data=f"newtag:{doc_id}"),
+            InlineKeyboardButton("Confirm Tags", callback_data=f"tagok:{doc_id}"),
+        ]
+    )
     return InlineKeyboardMarkup(buttons)
 
 
@@ -90,7 +96,15 @@ def build_single_select_keyboard(
     if nav_row:
         buttons.append(nav_row)
 
-    buttons.append([InlineKeyboardButton("Skip", callback_data=f"{callback_prefix}:skip:{doc_id}")])
+    # Determine the "+ New" callback prefix
+    new_prefix = f"new{callback_prefix}"  # newcorr or newdtype
+    new_label = "+ New Correspondent" if callback_prefix == "corr" else "+ New Type"
+    buttons.append(
+        [
+            InlineKeyboardButton(new_label, callback_data=f"{new_prefix}:{doc_id}"),
+            InlineKeyboardButton("Skip", callback_data=f"{callback_prefix}:skip:{doc_id}"),
+        ]
+    )
     return InlineKeyboardMarkup(buttons)
 
 
