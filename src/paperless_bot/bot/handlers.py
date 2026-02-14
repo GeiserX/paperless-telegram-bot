@@ -4,7 +4,7 @@ Telegram bot handlers for Paperless-NGX management.
 
 import logging
 
-from telegram import Message, Update
+from telegram import BotCommand, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
@@ -30,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 # Telegram bot API file size limit: 50 MB
 TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024
+
+# Bot commands shown in Telegram's command menu
+BOT_COMMANDS = [
+    BotCommand("search", "Search documents"),
+    BotCommand("recent", "Recently added documents"),
+    BotCommand("inbox", "Documents in inbox"),
+    BotCommand("stats", "Paperless statistics"),
+    BotCommand("help", "Show help message"),
+]
 
 
 async def _safe_edit(msg: Message, text: str, **kwargs) -> bool:
@@ -89,11 +98,11 @@ class PaperlessBot:
             "Send me a document or photo to upload it.\n"
             "Send any text to search your documents.\n\n"
             "Commands:\n"
-            "/search <query> — Search documents\n"
-            "/recent — Recently added documents\n"
-            "/inbox — Documents in inbox\n"
-            "/stats — Paperless statistics\n"
-            "/help — Show this message",
+            "/search <query> \u2014 Search documents\n"
+            "/recent \u2014 Recently added documents\n"
+            "/inbox \u2014 Documents in inbox\n"
+            "/stats \u2014 Paperless statistics\n"
+            "/help \u2014 Show this message",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -432,7 +441,7 @@ class PaperlessBot:
         )
 
     async def _handle_tag_confirm(self, update, context, chat_id: int, data: str):
-        """Handle tag confirmation — apply selected tags to document."""
+        """Handle tag confirmation \u2014 apply selected tags to document."""
         query = update.callback_query
         doc_id = int(data.split(":")[1])
 
@@ -582,11 +591,17 @@ class PaperlessBot:
         return "\n\n".join(lines)
 
 
+async def _post_init(application: Application) -> None:
+    """Register bot commands with Telegram after initialization."""
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    logger.info("Bot commands registered with Telegram")
+
+
 def create_bot(config: Config) -> Application:
     """Create and configure the Telegram bot application."""
     bot = PaperlessBot(config)
 
-    app = Application.builder().token(config.telegram_bot_token).build()
+    app = Application.builder().token(config.telegram_bot_token).post_init(_post_init).build()
 
     # Command handlers
     app.add_handler(CommandHandler("start", bot.cmd_start))
@@ -599,11 +614,11 @@ def create_bot(config: Config) -> Application:
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(bot.handle_callback))
 
-    # Document/photo handlers — must come before text handler
+    # Document/photo handlers \u2014 must come before text handler
     app.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, bot.handle_photo))
 
-    # Text message handler (search) — must be last
+    # Text message handler (search) \u2014 must be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     logger.info("Telegram bot configured")
