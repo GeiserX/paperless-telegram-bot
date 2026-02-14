@@ -4,7 +4,7 @@ Telegram bot handlers for Paperless-NGX management.
 
 import logging
 
-from telegram import BotCommand, Message, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
@@ -196,6 +196,58 @@ class PaperlessBot:
     # DOCUMENT / PHOTO UPLOAD HANDLERS
     # =========================================================================
 
+    async def _process_upload(self, chat_id: int, status_msg: Message, file_bytes: bytes, filename: str):
+        """Upload file to Paperless and handle the task result (success, duplicate, failure, timeout)."""
+        task_id = await self.client.upload_document(file_bytes, filename)
+        await _safe_edit(
+            status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN
+        )
+
+        result = await self.client.wait_for_task(task_id, timeout=60)
+
+        if result.status == "success" and result.doc_id:
+            document = await self.client.get_document(result.doc_id)
+            self.pending_uploads[chat_id] = {"doc_id": result.doc_id, "selected_tags": set()}
+            await _safe_edit(
+                status_msg,
+                f"Document processed: *{document.title}*\n\nSet metadata?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=build_metadata_keyboard(result.doc_id),
+            )
+
+        elif result.status == "duplicate":
+            if result.doc_id:
+                try:
+                    existing = await self.client.get_document(result.doc_id)
+                    keyboard = InlineKeyboardMarkup(
+                        [[InlineKeyboardButton(f"Download: {existing.title[:40]}", callback_data=f"dl:{existing.id}")]]
+                    )
+                    await _safe_edit(
+                        status_msg,
+                        f"Duplicate detected. This file already exists as *{existing.title}* (#{existing.id}).\n"
+                        f"Added: {existing.added}",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=keyboard,
+                    )
+                except Exception:
+                    logger.warning("Could not fetch existing document #%s", result.doc_id)
+                    await _safe_edit(
+                        status_msg,
+                        f"Duplicate detected. Existing document: #{result.doc_id}",
+                    )
+            else:
+                await _safe_edit(
+                    status_msg,
+                    "Duplicate detected. This file already exists in Paperless.",
+                )
+
+        elif result.status == "failed":
+            msg = result.message or "Unknown error"
+            await _safe_edit(status_msg, f"Processing failed: {msg}")
+
+        else:  # timeout
+            await _safe_edit(status_msg, "Processing timed out. The document may still appear in Paperless shortly.")
+
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming document files."""
         if not await self._check_auth(update):
@@ -210,24 +262,7 @@ class PaperlessBot:
         try:
             tg_file = await context.bot.get_file(doc.file_id)
             file_bytes = bytes(await tg_file.download_as_bytearray())
-
-            task_id = await self.client.upload_document(file_bytes, doc.file_name)
-            await _safe_edit(
-                status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN
-            )
-
-            doc_id = await self.client.wait_for_task(task_id, timeout=60)
-            if doc_id:
-                document = await self.client.get_document(doc_id)
-                self.pending_uploads[chat_id] = {"doc_id": doc_id, "selected_tags": set()}
-                await _safe_edit(
-                    status_msg,
-                    f"Document processed: *{document.title}*\n\nSet metadata?",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=build_metadata_keyboard(doc_id),
-                )
-            else:
-                await _safe_edit(status_msg, "Document uploaded but still processing. Check Paperless web UI.")
+            await self._process_upload(chat_id, status_msg, file_bytes, doc.file_name)
         except Exception:
             logger.exception("Upload failed")
             await _safe_edit(status_msg, "Upload failed. Check logs.")
@@ -244,25 +279,8 @@ class PaperlessBot:
         try:
             tg_file = await context.bot.get_file(photo.file_id)
             file_bytes = bytes(await tg_file.download_as_bytearray())
-
             filename = f"photo_{update.message.date.strftime('%Y%m%d_%H%M%S')}.jpg"
-            task_id = await self.client.upload_document(file_bytes, filename)
-            await _safe_edit(
-                status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN
-            )
-
-            doc_id = await self.client.wait_for_task(task_id, timeout=60)
-            if doc_id:
-                document = await self.client.get_document(doc_id)
-                self.pending_uploads[chat_id] = {"doc_id": doc_id, "selected_tags": set()}
-                await _safe_edit(
-                    status_msg,
-                    f"Document processed: *{document.title}*\n\nSet metadata?",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=build_metadata_keyboard(doc_id),
-                )
-            else:
-                await _safe_edit(status_msg, "Photo uploaded but still processing. Check Paperless web UI.")
+            await self._process_upload(chat_id, status_msg, file_bytes, filename)
         except Exception:
             logger.exception("Photo upload failed")
             await _safe_edit(status_msg, "Upload failed. Check logs.")
