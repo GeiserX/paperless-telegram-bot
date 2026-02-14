@@ -199,9 +199,7 @@ class PaperlessBot:
     async def _process_upload(self, chat_id: int, status_msg: Message, file_bytes: bytes, filename: str):
         """Upload file to Paperless and handle the task result (success, duplicate, failure, timeout)."""
         task_id = await self.client.upload_document(file_bytes, filename)
-        await _safe_edit(
-            status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN
-        )
+        await _safe_edit(status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN)
 
         result = await self.client.wait_for_task(task_id, timeout=60)
 
@@ -709,11 +707,11 @@ def create_bot(config: Config) -> Application:
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(bot.handle_callback))
 
-    # Document/photo handlers \u2014 must come before text handler
+    # Document/photo handlers — must come before text handler
     app.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, bot.handle_photo))
 
-    # Text message handler (search or new metadata name) \u2014 must be last
+    # Text message handler (search or new metadata name) — must be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     logger.info("Telegram bot configured")
