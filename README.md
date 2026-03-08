@@ -7,12 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/docker-publish.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/docker-publish.yml/badge.svg" alt="Docker Build"></a>
-  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
-  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml/badge.svg" alt="Lint"></a>
-  <a href="https://hub.docker.com/r/drumsergio/paperless-telegram-bot"><img src="https://img.shields.io/docker/pulls/drumsergio/paperless-telegram-bot" alt="Docker Pulls"></a>
-  <a href="https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/GeiserX/paperless-telegram-bot" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/docker-publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GeiserX/paperless-telegram-bot/docker-publish.yml?style=flat-square&logo=github&label=build" alt="Docker Build"></a>
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/GeiserX/paperless-telegram-bot/tests.yml?style=flat-square&logo=github&label=tests" alt="Tests"></a>
+  <a href="https://hub.docker.com/r/drumsergio/paperless-telegram-bot"><img src="https://img.shields.io/docker/pulls/drumsergio/paperless-telegram-bot?style=flat-square&logo=docker" alt="Docker Pulls"></a>
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/GeiserX/paperless-telegram-bot?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
 </p>
 
 ---
