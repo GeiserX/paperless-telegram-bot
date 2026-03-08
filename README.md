@@ -1,197 +1,170 @@
-# Paperless Telegram Bot
+<p align="center">
+  <img src="docs/images/banner.svg" alt="paperless-telegram-bot banner" width="900"/>
+</p>
 
-[![Docker Image](https://img.shields.io/docker/v/drumsergio/paperless-telegram-bot?sort=semver&label=Docker%20Hub)](https://hub.docker.com/r/drumsergio/paperless-telegram-bot)
-[![Tests](https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml/badge.svg)](https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml)
-[![Lint](https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml/badge.svg)](https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+<p align="center">
+  <strong>Manage Paperless-NGX documents entirely through Telegram.</strong>
+</p>
 
-Manage your [Paperless-NGX](https://github.com/paperless-ngx/paperless-ngx) documents directly from Telegram. Upload files, search by content, organize metadata, review your inbox, and download documents -- all from your phone.
+<p align="center">
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/docker-publish.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/docker-publish.yml/badge.svg" alt="Docker Build"></a>
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml"><img src="https://github.com/GeiserX/paperless-telegram-bot/actions/workflows/lint.yml/badge.svg" alt="Lint"></a>
+  <a href="https://hub.docker.com/r/drumsergio/paperless-telegram-bot"><img src="https://img.shields.io/docker/pulls/drumsergio/paperless-telegram-bot" alt="Docker Pulls"></a>
+  <a href="https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/GeiserX/paperless-telegram-bot" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
+</p>
+
+---
+
+A full-featured Telegram bot that integrates with [Paperless-NGX](https://docs.paperless-ngx.com/), giving you complete document management from your phone or desktop -- no web UI required. Upload documents and photos, search your archive with full-text search, manage metadata, review your inbox, and download files, all within Telegram.
 
 ## Features
 
-- **Upload documents and photos** -- send any file or photo to the bot, and it gets uploaded to Paperless-NGX automatically
-- **Full-text search** -- search your entire document library with paginated results; just type a query or use `/search`
-- **Metadata management** -- assign tags, correspondents, and document types right after uploading, with paginated selection keyboards
-- **Create metadata inline** -- create new tags, correspondents, or document types on the fly without leaving the chat
-- **Inbox review workflow** -- browse documents in your Paperless inbox, mark them as reviewed, and remove the inbox tag with one tap
-- **Download documents** -- download any document directly to Telegram (up to 50 MB)
-- **Statistics** -- quick overview of your Paperless-NGX instance (document count, inbox size, tags, correspondents, document types)
-- **Duplicate detection** -- if you upload a file that already exists, the bot tells you and links to the existing document
-- **Access control** -- restrict the bot to specific Telegram user IDs
-- **Health check endpoint** -- built-in HTTP `/health` endpoint for Docker health checks and monitoring
-- **Configurable inbox tag** -- auto-detects the inbox tag from Paperless, or lets you specify one explicitly
+- **Document Upload** -- Send any file or photo to the bot and it gets uploaded to Paperless-NGX automatically. Duplicates are detected and linked.
+- **Full-Text Search** -- Search across all your documents with `/search`. Results are paginated with inline keyboard navigation.
+- **Metadata Management** -- After uploading (or on any document), assign tags, correspondents, and document types through interactive inline keyboards.
+- **Inbox Review** -- `/inbox` lists all documents tagged with your inbox tag. Mark them as reviewed with a single tap.
+- **Document Download** -- Download original files directly to Telegram (up to 50 MB).
+- **Recent Documents** -- `/recent` shows the latest documents added to your archive.
+- **System Statistics** -- `/stats` displays document counts, tag usage, and storage information.
+- **Health Endpoint** -- Built-in `/health` HTTP endpoint for Docker health checks and monitoring.
+- **User Authorization** -- Restrict bot access to specific Telegram user IDs via allowlist.
+- **Non-Root Docker** -- Runs as an unprivileged user inside the container.
 
 ## Quick Start
 
-### Docker Compose (recommended)
-
-```yaml
-services:
-  paperless-telegram-bot:
-    image: drumsergio/paperless-telegram-bot:0.6.0
-    restart: unless-stopped
-    environment:
-      TELEGRAM_BOT_TOKEN: "your-bot-token"
-      PAPERLESS_URL: "http://paperless:8000"
-      PAPERLESS_TOKEN: "your-paperless-api-token"
-      TELEGRAM_ALLOWED_USERS: "123456789"  # your Telegram user ID
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
-      interval: 30s
-      timeout: 5s
-      start-period: 10s
-      retries: 3
-```
-
-### Docker Run
+### Docker (Recommended)
 
 ```bash
 docker run -d \
   --name paperless-telegram-bot \
   --restart unless-stopped \
-  -e TELEGRAM_BOT_TOKEN="your-bot-token" \
-  -e PAPERLESS_URL="http://paperless:8000" \
-  -e PAPERLESS_TOKEN="your-paperless-api-token" \
-  -e TELEGRAM_ALLOWED_USERS="123456789" \
-  drumsergio/paperless-telegram-bot:0.6.0
+  -e TELEGRAM_BOT_TOKEN=your_bot_token \
+  -e PAPERLESS_URL=http://your-paperless:8000 \
+  -e PAPERLESS_TOKEN=your_api_token \
+  -e TELEGRAM_ALLOWED_USERS=123456789 \
+  drumsergio/paperless-telegram-bot:latest
 ```
 
-### Getting Your Tokens
+### Docker Compose
 
-1. **Telegram Bot Token**: Message [@BotFather](https://t.me/BotFather) on Telegram, create a new bot with `/newbot`, and copy the token
-2. **Paperless API Token**: In Paperless-NGX, go to Settings > API Tokens (or `http://your-paperless/admin/authtoken/tokenproxy/`)
-3. **Your Telegram User ID**: Message [@userinfobot](https://t.me/userinfobot) on Telegram to get your numeric ID
+```yaml
+services:
+  paperless-telegram-bot:
+    image: drumsergio/paperless-telegram-bot:latest
+    container_name: paperless-telegram-bot
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      PAPERLESS_URL: "http://paperless:8000"
+      PAPERLESS_TOKEN: "${PAPERLESS_TOKEN}"
+      TELEGRAM_ALLOWED_USERS: "${TELEGRAM_ALLOWED_USERS}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
 
-## Configuration
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot API token from BotFather |
-| `PAPERLESS_URL` | URL of your Paperless-NGX instance (e.g., `http://paperless:8000`) |
-| `PAPERLESS_TOKEN` | Paperless-NGX API authentication token |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TELEGRAM_ALLOWED_USERS` | *(empty = open to anyone)* | Comma-separated Telegram user IDs allowed to use the bot |
-| `PAPERLESS_PUBLIC_URL` | same as `PAPERLESS_URL` | User-facing URL for clickable document links (useful when the internal URL differs from the external one) |
-| `MAX_SEARCH_RESULTS` | `10` | Number of results per page in search, recent, and inbox listings |
-| `REMOVE_INBOX_ON_DONE` | `true` | Remove the inbox tag when the user clicks "Done" after setting metadata. Set to `false` to disable |
-| `INBOX_TAG` | *(auto-detect)* | Explicit inbox tag name. If unset, auto-detects the tag with `is_inbox_tag=true` from the Paperless API |
-| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `HEALTH_PORT` | `8080` | Port for the `/health` HTTP endpoint |
-
-## Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/search <query>` | Full-text search across all documents |
-| `/recent` | List recently added documents |
-| `/inbox` | List documents in the inbox with review buttons |
-| `/stats` | Show Paperless-NGX statistics |
-| `/help` | Show available commands |
-
-You can also just type any text (without a command) to search.
-
-## Usage
-
-### Uploading Documents
-
-Send any file (PDF, image, etc.) or photo directly to the bot. After Paperless finishes processing:
-
-1. The bot shows the document title and offers a metadata keyboard
-2. **Set Tags** -- paginated checkbox list; select multiple, create new ones inline
-3. **Set Correspondent** -- paginated single-select list; create new ones inline
-4. **Set Document Type** -- paginated single-select list; create new ones inline
-5. **Done** -- saves metadata and provides a direct link to the document in Paperless
-
-If the file is a duplicate, the bot detects it and shows a link to the existing document instead.
-
-### Searching
-
-Use `/search invoice` or simply type `invoice` as a message. Results are paginated and each document has a download button.
-
-### Inbox Workflow
-
-The bot integrates with Paperless-NGX's inbox tag system:
-
-1. Paperless automatically tags new documents with the inbox tag (configured server-side via `is_inbox_tag=true` on a tag)
-2. Use `/inbox` to list all documents still in the inbox
-3. Each inbox document shows **Download** and **Reviewed** buttons
-4. Clicking **Reviewed** removes the inbox tag from the document
-5. The inbox tag is hidden from the tag selection keyboard since it is auto-managed
-
-The bot auto-detects your inbox tag from the Paperless API. If you use a custom tag name, set `INBOX_TAG` explicitly. If you don't use an inbox workflow at all, set `REMOVE_INBOX_ON_DONE=false` -- all inbox features will silently degrade.
-
-## Development
-
-### Prerequisites
-
-- Python 3.11+
-- A running Paperless-NGX instance
-
-### Setup
+### Manual Installation
 
 ```bash
 git clone https://github.com/GeiserX/paperless-telegram-bot.git
 cd paperless-telegram-bot
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # Edit with your values
+python -m paperless_bot run
 ```
 
-### Running Locally
+## Configuration
 
-```bash
-cp .env.example .env
-# Edit .env with your tokens
-paperless-bot run
-```
+All configuration is done through environment variables. Copy `.env.example` to `.env` for local development.
 
-### Testing
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes | -- | Telegram Bot API token from [@BotFather](https://t.me/BotFather) |
+| `PAPERLESS_URL` | Yes | -- | Paperless-NGX instance URL (e.g. `http://localhost:8000`) |
+| `PAPERLESS_TOKEN` | Yes | -- | Paperless-NGX API authentication token |
+| `TELEGRAM_ALLOWED_USERS` | No | *(open)* | Comma-separated Telegram user IDs allowed to use the bot |
+| `PAPERLESS_PUBLIC_URL` | No | `PAPERLESS_URL` | User-facing URL for clickable document links |
+| `MAX_SEARCH_RESULTS` | No | `10` | Number of results per page in search, recent, and inbox |
+| `REMOVE_INBOX_ON_DONE` | No | `true` | Remove inbox tag when clicking "Done" in metadata flow |
+| `INBOX_TAG` | No | *(auto-detect)* | Explicit inbox tag name. If unset, auto-detects via Paperless API |
+| `LOG_LEVEL` | No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `HEALTH_PORT` | No | `8080` | Port for the `/health` HTTP endpoint |
 
-```bash
-pytest tests/ -v
-```
+## Commands
 
-### Linting & Formatting
+| Command | Description |
+|---------|-------------|
+| `/search <query>` | Full-text search across all documents |
+| `/recent` | Show recently added documents |
+| `/inbox` | List documents in the inbox with review actions |
+| `/stats` | Display Paperless-NGX statistics |
+| `/help` | Show available commands and usage |
 
-```bash
-ruff check src/
-ruff format src/
-```
-
-Pre-commit hooks are configured to run ruff automatically:
-
-```bash
-pre-commit install
-```
-
-### Project Structure
-
-```
-src/paperless_bot/
-├── __init__.py          # Version
-├── __main__.py          # Entry point, CLI, health server
-├── config.py            # Environment variable loading
-├── api/
-│   └── client.py        # Async Paperless-NGX API client
-└── bot/
-    ├── handlers.py      # Telegram command and callback handlers
-    └── keyboards.py     # Inline keyboard builders
-```
+In addition to commands, you can send any **file or photo** directly to the bot to upload it to Paperless-NGX. After upload, an interactive keyboard lets you assign tags, a correspondent, and a document type.
 
 ## Architecture
 
-- **Telegram bot** -- built with [python-telegram-bot](https://python-telegram-bot.org/), uses long polling
-- **Paperless API client** -- async HTTP client using [httpx](https://www.python-encode.org/httpx/), with in-memory caching of tags/correspondents/document types
-- **Health endpoint** -- [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/) running in a background daemon thread on port 8080
-- **CI/CD** -- GitHub Actions runs linting and tests on every push/PR; Docker images are built and pushed to Docker Hub on tag pushes and main branch merges
+```
+paperless-telegram-bot
+|-- src/paperless_bot/
+|   |-- __main__.py         # Entry point, health server, CLI
+|   |-- config.py           # Environment variable loading and validation
+|   |-- api/
+|   |   +-- client.py       # Async Paperless-NGX API client with caching
+|   +-- bot/
+|       |-- handlers.py     # Command handlers, callback routing, upload flow
+|       +-- keyboards.py    # Inline keyboard builders for metadata selection
++-- tests/                  # pytest + respx test suite
+```
+
+**Key design decisions:**
+
+- **Async throughout** -- Uses `python-telegram-bot` with `httpx` for fully asynchronous I/O.
+- **Metadata caching** -- Tags, correspondents, and document types are cached in memory and refreshed on demand, minimizing API calls.
+- **Callback data encoding** -- Telegram limits `callback_data` to 64 bytes. All prefixes are kept short (`meta:tags:`, `dl:`, `sp:`, etc.) and long search queries are stored server-side per chat.
+- **Inbox auto-detection** -- The bot reads the `is_inbox_tag` field from the Paperless API rather than matching by name, so it works with any language or custom tag name.
+- **Duplicate handling** -- Upload failures containing "duplicate" are parsed to extract and link to the existing document.
+
+## Security
+
+- **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. When empty, the bot accepts messages from anyone (not recommended for production).
+- **Non-root container** -- The Docker image runs as an unprivileged `paperlessbot` user (UID 1000).
+- **No secrets in code** -- All credentials are loaded from environment variables. Never commit `.env` files.
+- **API token scoping** -- The bot uses a single Paperless-NGX API token. Create a dedicated user/token with appropriate permissions.
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run linter and formatter
+ruff check src/ && ruff format src/
+
+# Run tests
+python -m pytest tests/ -v
+
+# Run tests with coverage
+python -m pytest tests/ --cov=paperless_bot --cov-report=term-missing
+```
+
+## Contributing
+
+Contributions are welcome. Please:
+
+1. Fork the repository
+2. Create a feature branch (`feat/my-feature` or `fix/my-bug`)
+3. Follow the existing code style (enforced by `ruff`)
+4. Add tests for new functionality
+5. Submit a pull request
+
+This project follows [Conventional Commits](https://conventionalcommits.org) and [Semantic Versioning](https://semver.org).
 
 ## License
 
-[GPL-3.0](LICENSE)
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
