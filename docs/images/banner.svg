@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 200" width="900" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2CA58D"/>
+      <stop offset="100%" stop-color="#1B9AAA"/>
+    </linearGradient>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.95)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.8)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="200" rx="12" fill="url(#bg)"/>
+
+  <!-- Subtle pattern overlay -->
+  <rect width="900" height="200" rx="12" fill="url(#bg)" opacity="0.15"
+        style="mask: url(#dots)"/>
+
+  <!-- Document icon -->
+  <g transform="translate(80, 40)">
+    <!-- Document body -->
+    <rect x="0" y="0" width="55" height="70" rx="4" fill="url(#iconGrad)" opacity="0.9"/>
+    <!-- Folded corner -->
+    <path d="M 37 0 L 55 18 L 37 18 Z" fill="rgba(255,255,255,0.5)"/>
+    <!-- Document lines -->
+    <rect x="10" y="28" width="30" height="3" rx="1.5" fill="#2CA58D" opacity="0.5"/>
+    <rect x="10" y="38" width="25" height="3" rx="1.5" fill="#2CA58D" opacity="0.4"/>
+    <rect x="10" y="48" width="32" height="3" rx="1.5" fill="#2CA58D" opacity="0.3"/>
+  </g>
+
+  <!-- Chat bubble icon -->
+  <g transform="translate(110, 75)">
+    <!-- Bubble -->
+    <rect x="0" y="0" width="50" height="38" rx="8" fill="url(#iconGrad)" opacity="0.9"/>
+    <!-- Bubble tail -->
+    <path d="M 10 38 L 5 50 L 20 38" fill="url(#iconGrad)" opacity="0.9"/>
+    <!-- Dots in bubble -->
+    <circle cx="14" cy="19" r="3" fill="#1B9AAA" opacity="0.5"/>
+    <circle cx="25" cy="19" r="3" fill="#1B9AAA" opacity="0.5"/>
+    <circle cx="36" cy="19" r="3" fill="#1B9AAA" opacity="0.5"/>
+  </g>
+
+  <!-- Project name -->
+  <text x="195" y="105" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        font-size="38" font-weight="700" fill="#FFFFFF" letter-spacing="-0.5">
+    paperless-telegram-bot
+  </text>
+
+  <!-- Tagline -->
+  <text x="197" y="135" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        font-size="16" fill="rgba(255,255,255,0.85)" letter-spacing="0.3">
+    Manage Paperless-NGX documents entirely through Telegram
+  </text>
+
+  <!-- Version badge -->
+  <g transform="translate(780, 25)">
+    <rect width="70" height="24" rx="12" fill="rgba(0,0,0,0.2)"/>
+    <text x="35" y="16" text-anchor="middle"
+          font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+          font-size="11" font-weight="600" fill="rgba(255,255,255,0.9)">v0.6.0</text>
+  </g>
+</svg>
