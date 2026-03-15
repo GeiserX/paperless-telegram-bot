@@ -213,7 +213,7 @@ class PaperlessBot:
         task_id = await self.client.upload_document(file_bytes, filename)
         await _safe_edit(status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN)
 
-        result = await self.client.wait_for_task(task_id, timeout=60)
+        result = await self.client.wait_for_task(task_id, timeout=self.config.upload_task_timeout)
 
         if result.status == "success" and result.doc_id:
             document = await self.client.get_document(result.doc_id)
