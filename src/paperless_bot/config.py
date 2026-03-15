@@ -46,6 +46,10 @@ class Config:
         # Set to "false" to disable if you don't use an inbox tag.
         self.remove_inbox_on_done = os.getenv("REMOVE_INBOX_ON_DONE", "true").lower() in ("true", "1", "yes")
 
+        # Seconds to wait for Paperless to finish processing an uploaded document.
+        # Increase if Celery workers are slow or busy (e.g. mail checks blocking the queue).
+        self.upload_task_timeout = int(os.getenv("UPLOAD_TASK_TIMEOUT", "300"))
+
         # Optional: explicit inbox tag name override.
         # If not set, auto-detects the tag with is_inbox_tag=true from Paperless API.
         self.inbox_tag = os.getenv("INBOX_TAG", "").strip() or None
