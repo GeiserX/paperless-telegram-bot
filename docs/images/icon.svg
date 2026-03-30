@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2CA58D"/>
+      <stop offset="100%" style="stop-color:#1B9AAA"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="32" fill="url(#bg)"/>
+  
+  <!-- Document -->
+  <g transform="translate(55,38)">
+    <!-- Paper body -->
+    <path d="M0,18 C0,8 8,0 18,0 L80,0 L112,36 L112,162 C112,172 104,180 94,180 L18,180 C8,180 0,172 0,162 Z" fill="white" opacity="0.92"/>
+    <!-- Folded corner -->
+    <path d="M80,0 L80,30 C80,34 84,38 88,38 L112,36 Z" fill="white" opacity="0.65"/>
+    <!-- Text lines on document -->
+    <rect x="22" y="60" width="66" height="6" rx="3" fill="#2CA58D" opacity="0.45"/>
+    <rect x="22" y="78" width="50" height="6" rx="3" fill="#2CA58D" opacity="0.45"/>
+    <rect x="22" y="96" width="60" height="6" rx="3" fill="#2CA58D" opacity="0.45"/>
+    <rect x="22" y="114" width="38" height="6" rx="3" fill="#2CA58D" opacity="0.45"/>
+  </g>
+  
+  <!-- Telegram paper airplane (lower-right, overlapping the document) -->
+  <g transform="translate(172,186)">
+    <!-- Blue circle background for the plane -->
+    <circle cx="0" cy="0" r="34" fill="#0088CC"/>
+    <!-- Paper airplane (white on blue) -->
+    <path d="M-18,3 L14,-14 L4,16 L-4,3 Z" fill="white"/>
+    <!-- Fold shadow -->
+    <path d="M-4,3 L14,-14 L4,16 L0,10 Z" fill="white" opacity="0.6"/>
+  </g>
+</svg>
