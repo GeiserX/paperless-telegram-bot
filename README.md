@@ -152,6 +152,16 @@ python -m pytest tests/ -v
 python -m pytest tests/ --cov=paperless_bot --cov-report=term-missing
 ```
 
+## More Telegram Tools
+
+| Project | Description |
+|---------|-------------|
+| [Telegram-Archive](https://github.com/GeiserX/Telegram-Archive) | Automated incremental Telegram backups with local web viewer |
+| [telegram-delay-channel-cloner](https://github.com/GeiserX/telegram-delay-channel-cloner) | Relay messages between channels with configurable delay |
+| [telegram-slskd-local-bot](https://github.com/GeiserX/telegram-slskd-local-bot) | Automated music discovery and download via Telegram |
+| [jellyfin-telegram-channel-sync](https://github.com/GeiserX/jellyfin-telegram-channel-sync) | Sync Jellyfin access with Telegram channel membership |
+
+
 ## Contributing
 
 Contributions are welcome. Please:
