@@ -13,6 +13,7 @@
   <a href="https://pypi.org/project/paperless-telegram-bot/"><img src="https://img.shields.io/pypi/v/paperless-telegram-bot?style=flat-square&logo=pypi&logoColor=white" alt="PyPI"></a>
   <a href="https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/GeiserX/paperless-telegram-bot?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
+  <a href="https://codecov.io/gh/GeiserX/paperless-telegram-bot"><img src="https://codecov.io/gh/GeiserX/paperless-telegram-bot/graph/badge.svg" alt="codecov"></a>
 </p>
 
 ---
