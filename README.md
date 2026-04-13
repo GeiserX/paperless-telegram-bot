@@ -177,6 +177,17 @@ Contributions are welcome. Please:
 
 This project follows [Conventional Commits](https://conventionalcommits.org) and [Semantic Versioning](https://semver.org).
 
+
+## Related Projects
+
+| Project | Description |
+|---------|-------------|
+| [Telegram-Archive](https://github.com/GeiserX/Telegram-Archive) | Automated, incremental Telegram backups with a local web viewer |
+| [telegram-delay-channel-cloner](https://github.com/GeiserX/telegram-delay-channel-cloner) | Telegram bot that relays messages between channels with configurable delay |
+| [telegram-slskd-local-bot](https://github.com/GeiserX/telegram-slskd-local-bot) | Automated music discovery and download via Telegram bot with Soulseek |
+| [telegram-archive-mcp](https://github.com/GeiserX/telegram-archive-mcp) | MCP Server for Telegram-Archive |
+| [n8n-nodes-telegram-archive](https://github.com/GeiserX/n8n-nodes-telegram-archive) | n8n community node for Telegram-Archive |
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
