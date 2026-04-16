@@ -1,0 +1,9 @@
+description: "Manage Paperless-NGX documents entirely through Telegram — upload, search, tag, and organize your paperless archive on the go."
+personalNote: "I use Paperless-NGX daily and wanted a way to quickly upload and search documents from my phone without opening a browser."
+dockerImage: "drumsergio/paperless-telegram-bot"
+keyFeatures:
+  - "Upload documents directly via Telegram"
+  - "Full-text search across your archive"
+  - "Tag and organize from chat"
+  - "Docker-ready deployment"
+techStack: "Python, FastAPI, Docker"
