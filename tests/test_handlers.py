@@ -1,11 +1,9 @@
 """Tests for bot handlers."""
 
-import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from telegram import InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 
@@ -18,7 +16,6 @@ from paperless_bot.bot.handlers import (
     create_bot,
 )
 from paperless_bot.config import Config
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -1,6 +1,5 @@
 """Tests for Paperless-NGX API client."""
 
-import asyncio
 
 import pytest
 import respx

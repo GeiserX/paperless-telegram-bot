@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from paperless_bot import __version__
-from paperless_bot.__main__ import create_health_app, cmd_run, main, run_health_server
-
+from paperless_bot.__main__ import cmd_run, create_health_app, main, run_health_server
 
 # ---------------------------------------------------------------------------
 # Health app
@@ -84,17 +83,15 @@ class TestCmdRun:
 
 class TestCLI:
     def test_version(self, capsys):
-        with pytest.raises(SystemExit) as exc_info:
-            with patch("sys.argv", ["paperless-bot", "--version"]):
-                main()
+        with pytest.raises(SystemExit) as exc_info, patch("sys.argv", ["paperless-bot", "--version"]):
+            main()
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert __version__ in captured.out
 
     def test_unknown_command(self):
-        with pytest.raises(SystemExit) as exc_info:
-            with patch("sys.argv", ["paperless-bot", "unknown"]):
-                main()
+        with pytest.raises(SystemExit) as exc_info, patch("sys.argv", ["paperless-bot", "unknown"]):
+            main()
         assert exc_info.value.code != 0
 
     def test_default_command_calls_run(self):

@@ -1,6 +1,5 @@
 """Tests for inline keyboard builders."""
 
-import pytest
 
 from paperless_bot.api.client import Document
 from paperless_bot.bot.keyboards import (
