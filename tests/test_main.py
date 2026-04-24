@@ -34,8 +34,10 @@ class TestHealthApp:
 
 class TestRunHealthServer:
     def test_starts_uvicorn(self):
-        with patch("paperless_bot.__main__.create_health_app") as mock_app, \
-             patch("paperless_bot.__main__.uvicorn") as mock_uvicorn:
+        with (
+            patch("paperless_bot.__main__.create_health_app") as mock_app,
+            patch("paperless_bot.__main__.uvicorn") as mock_uvicorn,
+        ):
             mock_server = MagicMock()
             mock_uvicorn.Config.return_value = MagicMock()
             mock_uvicorn.Server.return_value = mock_server
@@ -55,10 +57,12 @@ class TestRunHealthServer:
 
 class TestCmdRun:
     def test_cmd_run_starts_bot(self):
-        with patch("paperless_bot.__main__.Config") as mock_config_cls, \
-             patch("paperless_bot.__main__.setup_logging") as mock_logging, \
-             patch("paperless_bot.__main__.create_bot") as mock_create_bot, \
-             patch("threading.Thread") as mock_thread:
+        with (
+            patch("paperless_bot.__main__.Config") as mock_config_cls,
+            patch("paperless_bot.__main__.setup_logging") as mock_logging,
+            patch("paperless_bot.__main__.create_bot") as mock_create_bot,
+            patch("threading.Thread") as mock_thread,
+        ):
             mock_config = MagicMock()
             mock_config.health_port = 8080
             mock_config_cls.return_value = mock_config
@@ -95,13 +99,11 @@ class TestCLI:
         assert exc_info.value.code != 0
 
     def test_default_command_calls_run(self):
-        with patch("sys.argv", ["paperless-bot"]), \
-             patch("paperless_bot.__main__.cmd_run") as mock_run:
+        with patch("sys.argv", ["paperless-bot"]), patch("paperless_bot.__main__.cmd_run") as mock_run:
             main()
             mock_run.assert_called_once()
 
     def test_run_command_calls_run(self):
-        with patch("sys.argv", ["paperless-bot", "run"]), \
-             patch("paperless_bot.__main__.cmd_run") as mock_run:
+        with patch("sys.argv", ["paperless-bot", "run"]), patch("paperless_bot.__main__.cmd_run") as mock_run:
             main()
             mock_run.assert_called_once()

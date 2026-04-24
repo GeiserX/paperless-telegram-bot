@@ -1,6 +1,5 @@
 """Tests for inline keyboard builders."""
 
-
 from paperless_bot.api.client import Document
 from paperless_bot.bot.keyboards import (
     build_document_list_keyboard,
@@ -27,6 +26,7 @@ def _make_doc(doc_id=1, title="Test Doc"):
 # build_metadata_keyboard
 # ---------------------------------------------------------------------------
 
+
 class TestMetadataKeyboard:
     def test_has_four_buttons(self):
         kb = build_metadata_keyboard(42)
@@ -50,6 +50,7 @@ class TestMetadataKeyboard:
 # ---------------------------------------------------------------------------
 # build_tag_selection_keyboard
 # ---------------------------------------------------------------------------
+
 
 class TestTagSelectionKeyboard:
     def test_basic_tags(self):
@@ -135,6 +136,7 @@ class TestTagSelectionKeyboard:
 # build_single_select_keyboard
 # ---------------------------------------------------------------------------
 
+
 class TestSingleSelectKeyboard:
     def test_basic_items(self):
         items = [(1, "ACME"), (2, "Corp")]
@@ -196,6 +198,7 @@ class TestSingleSelectKeyboard:
 # build_search_results_keyboard
 # ---------------------------------------------------------------------------
 
+
 class TestSearchResultsKeyboard:
     def test_basic(self):
         docs = [_make_doc(1, "Invoice"), _make_doc(2, "Receipt")]
@@ -252,6 +255,7 @@ class TestSearchResultsKeyboard:
 # ---------------------------------------------------------------------------
 # build_document_list_keyboard
 # ---------------------------------------------------------------------------
+
 
 class TestDocumentListKeyboard:
     def test_basic(self):

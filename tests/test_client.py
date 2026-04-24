@@ -1,6 +1,5 @@
 """Tests for Paperless-NGX API client."""
 
-
 import pytest
 import respx
 from httpx import Response
@@ -26,18 +25,14 @@ def _mock_api():
         yield
 
 
-def _mock_cache_endpoints(
-    tags=None, correspondents=None, doc_types=None, inbox_tag=False
-):
+def _mock_cache_endpoints(tags=None, correspondents=None, doc_types=None, inbox_tag=False):
     """Set up mock responses for cache refresh endpoints."""
     if tags is None:
         tags = [
             {"id": 1, "name": "invoice", "is_inbox_tag": False},
             {"id": 2, "name": "Inbox", "is_inbox_tag": inbox_tag},
         ]
-    respx.get("http://localhost:8000/api/tags/").mock(
-        return_value=Response(200, json={"results": tags, "next": None})
-    )
+    respx.get("http://localhost:8000/api/tags/").mock(return_value=Response(200, json={"results": tags, "next": None}))
     if correspondents is None:
         correspondents = [{"id": 1, "name": "ACME"}]
     respx.get("http://localhost:8000/api/correspondents/").mock(
@@ -78,16 +73,27 @@ def _make_doc_response(
 class TestDataclasses:
     def test_document(self):
         doc = Document(
-            id=1, title="Test", correspondent="ACME", document_type="Bill",
-            tags=["invoice"], created="2025-01-01", added="2025-01-01",
+            id=1,
+            title="Test",
+            correspondent="ACME",
+            document_type="Bill",
+            tags=["invoice"],
+            created="2025-01-01",
+            added="2025-01-01",
         )
         assert doc.id == 1
         assert doc.content is None
 
     def test_document_with_content(self):
         doc = Document(
-            id=1, title="Test", correspondent=None, document_type=None,
-            tags=[], created="", added="", content="Some text",
+            id=1,
+            title="Test",
+            correspondent=None,
+            document_type=None,
+            tags=[],
+            created="",
+            added="",
+            content="Some text",
         )
         assert doc.content == "Some text"
 
@@ -273,9 +279,7 @@ class TestGetDocument:
     @respx.mock
     async def test_get_document(self, client):
         _mock_cache_endpoints()
-        respx.get("http://localhost:8000/api/documents/42/").mock(
-            return_value=Response(200, json=_make_doc_response())
-        )
+        respx.get("http://localhost:8000/api/documents/42/").mock(return_value=Response(200, json=_make_doc_response()))
         doc = await client.get_document(42)
         assert doc.id == 42
         assert doc.title == "Test Invoice"
@@ -351,10 +355,12 @@ class TestWaitForTask:
         respx.get("http://localhost:8000/api/tasks/").mock(
             return_value=Response(
                 200,
-                json=[{
-                    "status": "FAILURE",
-                    "result": "Not consuming: It is a duplicate of Invoice (#42).",
-                }],
+                json=[
+                    {
+                        "status": "FAILURE",
+                        "result": "Not consuming: It is a duplicate of Invoice (#42).",
+                    }
+                ],
             )
         )
         result = await client.wait_for_task("task-abc", timeout=4)
@@ -366,10 +372,12 @@ class TestWaitForTask:
         respx.get("http://localhost:8000/api/tasks/").mock(
             return_value=Response(
                 200,
-                json=[{
-                    "status": "FAILURE",
-                    "result": "Not consuming: It is a duplicate (no ID).",
-                }],
+                json=[
+                    {
+                        "status": "FAILURE",
+                        "result": "Not consuming: It is a duplicate (no ID).",
+                    }
+                ],
             )
         )
         result = await client.wait_for_task("task-abc", timeout=4)
@@ -394,9 +402,7 @@ class TestWaitForTask:
 
     @respx.mock
     async def test_task_empty_response(self, client):
-        respx.get("http://localhost:8000/api/tasks/").mock(
-            return_value=Response(200, json=[])
-        )
+        respx.get("http://localhost:8000/api/tasks/").mock(return_value=Response(200, json=[]))
         result = await client.wait_for_task("task-abc", timeout=4)
         assert result.status == "timeout"
 
@@ -537,12 +543,8 @@ class TestInboxDocuments:
     async def test_remove_inbox_tag(self, client):
         _mock_cache_endpoints(inbox_tag=True)
         await client.refresh_cache()
-        respx.get("http://localhost:8000/api/documents/42/").mock(
-            return_value=Response(200, json={"tags": [1, 2]})
-        )
-        respx.patch("http://localhost:8000/api/documents/42/").mock(
-            return_value=Response(200, json={})
-        )
+        respx.get("http://localhost:8000/api/documents/42/").mock(return_value=Response(200, json={"tags": [1, 2]}))
+        respx.patch("http://localhost:8000/api/documents/42/").mock(return_value=Response(200, json={}))
         await client.remove_inbox_tag(42)
 
     @respx.mock
@@ -583,9 +585,7 @@ class TestTags:
 
     @respx.mock
     async def test_create_tag(self, client):
-        respx.post("http://localhost:8000/api/tags/").mock(
-            return_value=Response(200, json={"id": 5, "name": "newtag"})
-        )
+        respx.post("http://localhost:8000/api/tags/").mock(return_value=Response(200, json={"id": 5, "name": "newtag"}))
         tag = await client.create_tag("newtag")
         assert tag.id == 5
         assert tag.name == "newtag"
@@ -671,9 +671,7 @@ class TestStatistics:
 class TestAuthHeader:
     @respx.mock
     async def test_auth_header(self, client):
-        route = respx.get("http://localhost:8000/api/statistics/").mock(
-            return_value=Response(200, json={})
-        )
+        route = respx.get("http://localhost:8000/api/statistics/").mock(return_value=Response(200, json={}))
         await client.get_statistics()
         assert route.calls[0].request.headers["authorization"] == "Token test-token"
 

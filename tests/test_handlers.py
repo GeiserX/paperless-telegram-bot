@@ -21,6 +21,7 @@ from paperless_bot.config import Config
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def config():
     cfg = MagicMock(spec=Config)
@@ -67,8 +68,16 @@ def _make_callback_update(user_id=12345, chat_id=100, data=""):
     return update
 
 
-def _make_doc(doc_id=42, title="Test Doc", correspondent="ACME", document_type="Bill",
-              tags=None, created="2025-01-15", added="2025-01-15", content=None):
+def _make_doc(
+    doc_id=42,
+    title="Test Doc",
+    correspondent="ACME",
+    document_type="Bill",
+    tags=None,
+    created="2025-01-15",
+    added="2025-01-15",
+    content=None,
+):
     return Document(
         id=doc_id,
         title=title,
@@ -84,6 +93,7 @@ def _make_doc(doc_id=42, title="Test Doc", correspondent="ACME", document_type="
 # ---------------------------------------------------------------------------
 # _safe_edit
 # ---------------------------------------------------------------------------
+
 
 class TestSafeEdit:
     async def test_success(self):
@@ -122,6 +132,7 @@ class TestSafeEdit:
 # PaperlessBot authorization
 # ---------------------------------------------------------------------------
 
+
 class TestAuthorization:
     def test_authorized_empty_allowlist(self, bot):
         bot.config.telegram_allowed_users = set()
@@ -153,6 +164,7 @@ class TestAuthorization:
 # Helper methods
 # ---------------------------------------------------------------------------
 
+
 class TestHelpers:
     def test_document_url(self, bot):
         url = bot._document_url(42)
@@ -180,8 +192,13 @@ class TestHelpers:
 
     def test_format_document_list_no_metadata(self, bot):
         doc = Document(
-            id=42, title="Test Doc", correspondent=None, document_type=None,
-            tags=[], created="2025-01-15", added="2025-01-15",
+            id=42,
+            title="Test Doc",
+            correspondent=None,
+            document_type=None,
+            tags=[],
+            created="2025-01-15",
+            added="2025-01-15",
         )
         text = PaperlessBot._format_document_list([doc])
         assert "*Test Doc*" in text
@@ -206,6 +223,7 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
+
 
 class TestCommandHandlers:
     async def test_cmd_start(self, bot):
@@ -319,13 +337,15 @@ class TestCommandHandlers:
 
     async def test_cmd_stats_success(self, bot):
         update = _make_update()
-        bot.client.get_statistics = AsyncMock(return_value={
-            "documents_total": 100,
-            "documents_inbox": 5,
-            "correspondents_total": 10,
-            "tags_total": 20,
-            "document_types_total": 8,
-        })
+        bot.client.get_statistics = AsyncMock(
+            return_value={
+                "documents_total": 100,
+                "documents_inbox": 5,
+                "correspondents_total": 10,
+                "tags_total": 20,
+                "document_types_total": 8,
+            }
+        )
         await bot.cmd_stats(update, MagicMock())
         call_args = update.message.reply_text.call_args
         assert "100" in call_args.args[0]
@@ -341,6 +361,7 @@ class TestCommandHandlers:
 # ---------------------------------------------------------------------------
 # Document / photo upload handlers
 # ---------------------------------------------------------------------------
+
 
 class TestUploadHandlers:
     async def test_handle_document_success(self, bot):
@@ -429,6 +450,7 @@ class TestUploadHandlers:
 # _process_upload
 # ---------------------------------------------------------------------------
 
+
 class TestProcessUpload:
     async def test_success(self, bot):
         status_msg = MagicMock()
@@ -462,9 +484,7 @@ class TestProcessUpload:
         status_msg.edit_text = AsyncMock()
 
         bot.client.upload_document = AsyncMock(return_value="task-abc")
-        bot.client.wait_for_task = AsyncMock(
-            return_value=TaskResult(status="duplicate", doc_id=10, message="dup")
-        )
+        bot.client.wait_for_task = AsyncMock(return_value=TaskResult(status="duplicate", doc_id=10, message="dup"))
         bot.client.get_document = AsyncMock(side_effect=Exception("not found"))
 
         await bot._process_upload(100, status_msg, b"data", "test.pdf")
@@ -476,9 +496,7 @@ class TestProcessUpload:
         status_msg.edit_text = AsyncMock()
 
         bot.client.upload_document = AsyncMock(return_value="task-abc")
-        bot.client.wait_for_task = AsyncMock(
-            return_value=TaskResult(status="duplicate", doc_id=None, message="dup")
-        )
+        bot.client.wait_for_task = AsyncMock(return_value=TaskResult(status="duplicate", doc_id=None, message="dup"))
 
         await bot._process_upload(100, status_msg, b"data", "test.pdf")
         last_call = status_msg.edit_text.call_args_list[-1]
@@ -489,9 +507,7 @@ class TestProcessUpload:
         status_msg.edit_text = AsyncMock()
 
         bot.client.upload_document = AsyncMock(return_value="task-abc")
-        bot.client.wait_for_task = AsyncMock(
-            return_value=TaskResult(status="failed", message="OCR failed")
-        )
+        bot.client.wait_for_task = AsyncMock(return_value=TaskResult(status="failed", message="OCR failed"))
 
         await bot._process_upload(100, status_msg, b"data", "test.pdf")
         last_call = status_msg.edit_text.call_args_list[-1]
@@ -512,6 +528,7 @@ class TestProcessUpload:
 # ---------------------------------------------------------------------------
 # Text message handler
 # ---------------------------------------------------------------------------
+
 
 class TestHandleText:
     async def test_search_on_text(self, bot):
@@ -547,6 +564,7 @@ class TestHandleText:
 # ---------------------------------------------------------------------------
 # _create_new_item
 # ---------------------------------------------------------------------------
+
 
 class TestCreateNewItem:
     async def test_create_tag(self, bot):
@@ -593,6 +611,7 @@ class TestCreateNewItem:
 # _do_search
 # ---------------------------------------------------------------------------
 
+
 class TestDoSearch:
     async def test_search_with_results(self, bot):
         update = _make_update(chat_id=100)
@@ -633,6 +652,7 @@ class TestDoSearch:
 # ---------------------------------------------------------------------------
 # Callback query handler
 # ---------------------------------------------------------------------------
+
 
 class TestCallbackHandler:
     async def test_unauthorized_callback(self, bot):
@@ -894,6 +914,7 @@ class TestCallbackHandler:
 # ---------------------------------------------------------------------------
 # create_bot and _post_init
 # ---------------------------------------------------------------------------
+
 
 class TestCreateBot:
     def test_create_bot_returns_application(self, config):
