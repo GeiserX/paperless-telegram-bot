@@ -1,8 +1,10 @@
 """Tests for configuration module."""
 
+import logging
+
 import pytest
 
-from paperless_bot.config import Config
+from paperless_bot.config import Config, setup_logging
 
 
 @pytest.fixture(autouse=True)
@@ -87,3 +89,67 @@ def test_inbox_tag_empty(monkeypatch):
     monkeypatch.setenv("INBOX_TAG", "  ")
     config = Config()
     assert config.inbox_tag is None
+
+
+def test_setup_logging():
+    config = Config()
+    setup_logging(config)
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+    assert logging.getLogger("telegram").level == logging.WARNING
+
+
+def test_paperless_public_url_default():
+    config = Config()
+    assert config.paperless_public_url == "http://localhost:8000"
+
+
+def test_paperless_public_url_override(monkeypatch):
+    monkeypatch.setenv("PAPERLESS_PUBLIC_URL", "https://papers.example.com/")
+    config = Config()
+    assert config.paperless_public_url == "https://papers.example.com"
+
+
+def test_upload_task_timeout_default():
+    config = Config()
+    assert config.upload_task_timeout == 300
+
+
+def test_upload_task_timeout_custom(monkeypatch):
+    monkeypatch.setenv("UPLOAD_TASK_TIMEOUT", "600")
+    config = Config()
+    assert config.upload_task_timeout == 600
+
+
+def test_health_port_custom(monkeypatch):
+    monkeypatch.setenv("HEALTH_PORT", "9090")
+    config = Config()
+    assert config.health_port == 9090
+
+
+def test_log_level_debug(monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    config = Config()
+    assert config.log_level == logging.DEBUG
+
+
+def test_log_level_invalid(monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "INVALID")
+    config = Config()
+    assert config.log_level == logging.INFO  # Falls back to INFO
+
+
+def test_missing_paperless_token(monkeypatch):
+    monkeypatch.delenv("PAPERLESS_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="PAPERLESS_TOKEN"):
+        Config()
+
+
+def test_parse_id_set_whitespace():
+    result = Config._parse_id_set("  123 , 456 , 789  ")
+    assert result == {123, 456, 789}
+
+
+def test_parse_id_set_trailing_comma():
+    result = Config._parse_id_set("123,456,")
+    assert result == {123, 456}
