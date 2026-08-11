@@ -209,7 +209,10 @@ class TestCacheRefresh:
 
     @respx.mock
     async def test_ensure_cache_skips_if_populated(self, client):
+        import time as _time
+
         client._tags_cache = {1: "already"}
+        client._cache_loaded_at = _time.monotonic()
         # No mock needed because it should NOT make requests
         await client._ensure_cache()
         assert client._tags_cache == {1: "already"}
@@ -896,3 +899,99 @@ class TestGetDocumentTagIds:
             return_value=Response(200, json=_make_doc_response(tags=[3, 9]))
         )
         assert await client.get_document_tag_ids(42) == [3, 9]
+
+
+# ---------------------------------------------------------------------------
+# v0.7.0 hardening: error bodies, cache TTL, poll abort, probe
+# ---------------------------------------------------------------------------
+
+
+class TestErrorBodies:
+    @respx.mock
+    async def test_error_body_preserved(self, client):
+        respx.post("http://localhost:8000/api/tags/").mock(
+            return_value=Response(400, json={"name": ["tag with this name already exists"]})
+        )
+        import httpx
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.create_tag("dup")
+        assert "already exists" in str(exc_info.value)
+
+    @respx.mock
+    async def test_empty_body_plain_raise(self, client):
+        respx.get("http://localhost:8000/api/documents/1/download/").mock(return_value=Response(500))
+        import httpx
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.download_document(1)
+
+
+class TestCacheTTL:
+    @respx.mock
+    async def test_stale_cache_refreshes(self, client):
+        import time as _time
+
+        _mock_cache_endpoints()
+        client._tags_cache = {1: "old"}
+        client._cache_loaded_at = _time.monotonic() - 10_000
+        await client._ensure_cache()
+        assert client._tags_cache[1] == "invoice"  # refreshed from mock
+
+    @respx.mock
+    async def test_fresh_cache_not_refreshed(self, client):
+        import time as _time
+
+        client._tags_cache = {1: "cached"}
+        client._cache_loaded_at = _time.monotonic()
+        # No mocks registered: a request would fail the test
+        await client._ensure_cache()
+        assert client._tags_cache == {1: "cached"}
+
+    @respx.mock
+    async def test_refresh_failure_serves_stale(self, client):
+        import time as _time
+
+        respx.get("http://localhost:8000/api/tags/").mock(return_value=Response(500))
+        client._tags_cache = {1: "stale-but-usable"}
+        client._cache_loaded_at = _time.monotonic() - 10_000
+        await client._ensure_cache()  # must not raise
+        assert client._tags_cache == {1: "stale-but-usable"}
+
+    @respx.mock
+    async def test_refresh_failure_empty_cache_raises(self, client):
+        respx.get("http://localhost:8000/api/tags/").mock(return_value=Response(500))
+        import httpx
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client._ensure_cache()
+
+
+class TestPollAbort:
+    @respx.mock
+    async def test_aborts_after_consecutive_failures(self, client):
+        respx.get("http://localhost:8000/api/tasks/").mock(return_value=Response(401))
+        result = await client.wait_for_task("task-abc", timeout=120)
+        assert result.status == "failed"
+        assert "task API" in result.message
+
+
+class TestProbe:
+    @respx.mock
+    async def test_probe_returns_versions(self, client):
+        respx.get("http://localhost:8000/api/statistics/").mock(
+            return_value=Response(200, json={}, headers={"x-version": "3.0.5", "x-api-version": "10"})
+        )
+        info = await client.probe()
+        assert info == {"server_version": "3.0.5", "api_version": "10"}
+
+    @respx.mock
+    async def test_probe_raises_on_bad_token(self, client):
+        respx.get("http://localhost:8000/api/statistics/").mock(
+            return_value=Response(401, json={"detail": "Invalid token."})
+        )
+        import httpx
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.probe()
+        assert "Invalid token" in str(exc_info.value)

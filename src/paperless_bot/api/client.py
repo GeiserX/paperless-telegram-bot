@@ -6,6 +6,7 @@ All Paperless API interaction goes through this module.
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -13,6 +14,34 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _DUPLICATE_DOC_ID_RE = re.compile(r"#(\d+)")
+
+# Seconds before the tags/correspondents/document-types cache is considered
+# stale and refreshed (items created in the Paperless web UI show up after
+# at most this long instead of only after a bot restart).
+CACHE_TTL = 5 * 60
+
+# Consecutive task-poll failures before giving up early instead of sleeping
+# out the whole upload timeout.
+MAX_POLL_FAILURES = 5
+
+
+def _raise_for_status_with_body(resp: httpx.Response) -> None:
+    """raise_for_status, but keep Paperless's error body in the message.
+
+    Paperless returns precise JSON diagnostics (e.g. '{"name": ["tag with
+    this name already exists"]}') that a bare HTTPStatusError discards.
+    """
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body = resp.text.strip()
+        if body:
+            raise httpx.HTTPStatusError(
+                f"{exc.args[0] if exc.args else exc}\nPaperless response: {body[:500]}",
+                request=exc.request,
+                response=exc.response,
+            ) from None
+        raise
 
 
 @dataclass
@@ -74,6 +103,7 @@ class PaperlessClient:
         self._doc_types_cache: dict[int, str] = {}
         self._inbox_tag_id: int | None = None
         self._inbox_tag_name_override = inbox_tag_name
+        self._cache_loaded_at: float = 0.0
 
     async def close(self):
         await self._client.aclose()
@@ -118,11 +148,21 @@ class PaperlessClient:
             len(self._doc_types_cache),
             self._inbox_tag_id,
         )
+        self._cache_loaded_at = time.monotonic()
 
     async def _ensure_cache(self):
-        """Populate caches if empty."""
-        if not self._tags_cache:
+        """Populate the caches if empty; refresh them when older than CACHE_TTL."""
+        fresh = self._tags_cache and time.monotonic() - self._cache_loaded_at <= CACHE_TTL
+        if fresh:
+            return
+        try:
             await self.refresh_cache()
+        except Exception:
+            if not self._tags_cache:
+                raise
+            # A populated-but-stale cache beats failing the user's request
+            logger.warning("Cache refresh failed; serving stale metadata cache", exc_info=True)
+            self._cache_loaded_at = time.monotonic()
 
     # --- Documents ---
 
@@ -133,7 +173,7 @@ class PaperlessClient:
             "/api/documents/",
             params={"query": query, "page": page, "page_size": page_size},
         )
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         documents = [self._parse_document(d) for d in data["results"]]
         return documents, data["count"]
@@ -145,20 +185,20 @@ class PaperlessClient:
             "/api/documents/",
             params={"ordering": "-added", "page_size": page_size},
         )
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return [self._parse_document(d) for d in resp.json()["results"]]
 
     async def get_document(self, doc_id: int) -> Document:
         """Get a single document by ID."""
         await self._ensure_cache()
         resp = await self._client.get(f"/api/documents/{doc_id}/")
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return self._parse_document(resp.json())
 
     async def get_document_tag_ids(self, doc_id: int) -> list[int]:
         """Get the current tag IDs of a document (fresh, not from cache)."""
         resp = await self._client.get(f"/api/documents/{doc_id}/")
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return list(resp.json().get("tags", []))
 
     async def upload_document(
@@ -186,7 +226,7 @@ class PaperlessClient:
             files={"document": (filename, file_bytes)},
             data=data,
         )
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return resp.text.strip().strip('"')
 
     async def wait_for_task(self, task_id: str, timeout: int = 60) -> TaskResult:
@@ -199,12 +239,14 @@ class PaperlessClient:
           statuses, and a ``result_data`` dict (``document_id``, ``duplicate_of``,
           ``reason``, ``error_message``).
         """
+        poll_failures = 0
         for _ in range(timeout // 2):
             await asyncio.sleep(2)
             try:
                 resp = await self._client.get("/api/tasks/", params={"task_id": task_id})
-                resp.raise_for_status()
+                _raise_for_status_with_body(resp)
                 data = resp.json()
+                poll_failures = 0
                 # dict: 3.x paginated envelope, or (defensively) a bare task dict
                 tasks = data.get("results", [data]) if isinstance(data, dict) else data
                 if tasks:
@@ -235,7 +277,16 @@ class PaperlessClient:
                         return TaskResult(status="failed", message=result_msg)
 
             except Exception:
-                logger.warning("Error polling task %s", task_id, exc_info=True)
+                poll_failures += 1
+                logger.warning("Error polling task %s (%d consecutive)", task_id, poll_failures, exc_info=True)
+                if poll_failures >= MAX_POLL_FAILURES:
+                    # The API is unreachable or rejecting us — sleeping out the
+                    # rest of the timeout would only delay the same answer.
+                    logger.error("Aborting task %s polling after %d consecutive errors", task_id, poll_failures)
+                    return TaskResult(
+                        status="failed",
+                        message="Could not check processing status (Paperless task API unreachable or rejecting requests). The document may still be processed.",
+                    )
 
         logger.warning("Task %s did not finish within %d seconds", task_id, timeout)
         return TaskResult(status="timeout")
@@ -269,7 +320,7 @@ class PaperlessClient:
     async def download_document(self, doc_id: int) -> tuple[bytes, str]:
         """Download a document. Returns (file_bytes, filename)."""
         resp = await self._client.get(f"/api/documents/{doc_id}/download/")
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         cd = resp.headers.get("content-disposition", "")
         filename = f"document_{doc_id}.pdf"
         if "filename=" in cd:
@@ -283,7 +334,7 @@ class PaperlessClient:
         """Partial update of a document (tags, correspondent, document_type, title, etc.)."""
         await self._ensure_cache()
         resp = await self._client.patch(f"/api/documents/{doc_id}/", json=fields)
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return self._parse_document(resp.json())
 
     async def get_inbox_documents(self, page_size: int = 10) -> tuple[list[Document], int]:
@@ -295,7 +346,7 @@ class PaperlessClient:
             "/api/documents/",
             params={"tags__id": self._inbox_tag_id, "ordering": "-added", "page_size": page_size},
         )
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         return [self._parse_document(d) for d in data["results"]], data["count"]
 
@@ -305,7 +356,7 @@ class PaperlessClient:
         if not self._inbox_tag_id:
             return
         resp = await self._client.get(f"/api/documents/{doc_id}/")
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         current_tags = resp.json().get("tags", [])
         if self._inbox_tag_id in current_tags:
             current_tags.remove(self._inbox_tag_id)
@@ -322,7 +373,7 @@ class PaperlessClient:
     async def create_tag(self, name: str) -> Tag:
         """Create a new tag. Returns the created Tag."""
         resp = await self._client.post("/api/tags/", json={"name": name})
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         tag = Tag(id=data["id"], name=data["name"])
         self._tags_cache[tag.id] = tag.name
@@ -338,7 +389,7 @@ class PaperlessClient:
     async def create_correspondent(self, name: str) -> Correspondent:
         """Create a new correspondent. Returns the created Correspondent."""
         resp = await self._client.post("/api/correspondents/", json={"name": name})
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         corr = Correspondent(id=data["id"], name=data["name"])
         self._correspondents_cache[corr.id] = corr.name
@@ -354,7 +405,7 @@ class PaperlessClient:
     async def create_document_type(self, name: str) -> DocumentType:
         """Create a new document type. Returns the created DocumentType."""
         resp = await self._client.post("/api/document_types/", json={"name": name})
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         dt = DocumentType(id=data["id"], name=data["name"])
         self._doc_types_cache[dt.id] = dt.name
@@ -365,8 +416,24 @@ class PaperlessClient:
     async def get_statistics(self) -> dict:
         """Get Paperless-NGX statistics."""
         resp = await self._client.get("/api/statistics/")
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return resp.json()
+
+    async def probe(self) -> dict[str, str]:
+        """Validate connectivity and auth against Paperless; return server info.
+
+        Raises on unreachable host or rejected token. The version headers are
+        logged so API-shape changes (like the 2.x -> 3.x tasks change) are
+        visible in startup logs. Deliberately NOT pinning an Accept version:
+        older servers 406 unsupported versions, and the client already parses
+        both known task shapes.
+        """
+        resp = await self._client.get("/api/statistics/")
+        _raise_for_status_with_body(resp)
+        return {
+            "server_version": resp.headers.get("x-version", "unknown"),
+            "api_version": resp.headers.get("x-api-version", "unknown"),
+        }
 
     # --- Helpers ---
 
@@ -376,7 +443,7 @@ class PaperlessClient:
         page = 1
         while True:
             resp = await self._client.get(endpoint, params={"page": page, "page_size": 100})
-            resp.raise_for_status()
+            _raise_for_status_with_body(resp)
             data = resp.json()
             results.extend(data["results"])
             if not data.get("next"):
