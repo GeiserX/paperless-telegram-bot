@@ -183,32 +183,46 @@ class PaperlessClient:
         return resp.text.strip().strip('"')
 
     async def wait_for_task(self, task_id: str, timeout: int = 60) -> TaskResult:
-        """Poll for an upload task to complete. Returns a TaskResult."""
+        """Poll for an upload task to complete. Returns a TaskResult.
+
+        Handles both Paperless-NGX task API shapes:
+        - 2.x (API <= v9): bare list, uppercase Celery statuses, ``result`` string
+          and ``related_document`` fields.
+        - 3.x (API >= v10): paginated ``{"results": [...]}`` envelope, lowercase
+          statuses, and a ``result_data`` dict (``document_id``, ``duplicate_of``,
+          ``reason``, ``error_message``).
+        """
         for _ in range(timeout // 2):
             await asyncio.sleep(2)
             try:
                 resp = await self._client.get("/api/tasks/", params={"task_id": task_id})
                 resp.raise_for_status()
-                tasks = resp.json()
+                data = resp.json()
+                # dict: 3.x paginated envelope, or (defensively) a bare task dict
+                tasks = data.get("results", [data]) if isinstance(data, dict) else data
                 if tasks:
-                    task = tasks[0] if isinstance(tasks, list) else tasks
-                    status = task.get("status")
-                    result_msg = str(task.get("result") or "")
+                    task = tasks[0]
+                    status = str(task.get("status") or "").upper()
+                    result_data = task.get("result_data") or {}
+                    result_msg = str(
+                        task.get("result") or result_data.get("reason") or result_data.get("error_message") or ""
+                    )
 
                     if status == "SUCCESS":
                         return TaskResult(
                             status="success",
-                            doc_id=task.get("related_document"),
+                            doc_id=self._extract_task_doc_id(task),
                         )
 
                     if status in ("FAILURE", "REVOKED"):
                         # Detect duplicate uploads
-                        if "duplicate" in result_msg.lower():
-                            existing_id = self._extract_duplicate_id(result_msg)
+                        duplicate_of = result_data.get("duplicate_of")
+                        if duplicate_of or "duplicate" in result_msg.lower():
+                            existing_id = int(duplicate_of) if duplicate_of else self._extract_duplicate_id(result_msg)
                             return TaskResult(
                                 status="duplicate",
                                 doc_id=existing_id,
-                                message=result_msg,
+                                message=result_msg or f"Duplicate of document #{existing_id}",
                             )
                         logger.error("Task %s failed: %s", task_id, result_msg)
                         return TaskResult(status="failed", message=result_msg)
@@ -216,7 +230,22 @@ class PaperlessClient:
             except Exception:
                 logger.warning("Error polling task %s", task_id, exc_info=True)
 
+        logger.warning("Task %s did not finish within %d seconds", task_id, timeout)
         return TaskResult(status="timeout")
+
+    @staticmethod
+    def _extract_task_doc_id(task: dict) -> int | None:
+        """Extract the created document ID from a completed task (2.x or 3.x shape)."""
+        doc_id = task.get("related_document")
+        if doc_id is None:
+            doc_id = (task.get("result_data") or {}).get("document_id")
+        if doc_id is None:
+            related_ids = task.get("related_document_ids") or []
+            doc_id = related_ids[0] if related_ids else None
+        try:
+            return int(doc_id) if doc_id is not None else None
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _extract_duplicate_id(result_msg: str) -> int | None:

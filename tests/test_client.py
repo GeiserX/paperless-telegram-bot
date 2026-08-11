@@ -417,6 +417,92 @@ class TestWaitForTask:
         assert result.doc_id == 7
 
     @respx.mock
+    async def test_task_success_v3_paginated(self, client):
+        """Paperless-NGX 3.x returns a paginated envelope with lowercase statuses."""
+        call_count = 0
+
+        def task_side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                return Response(
+                    200,
+                    json={"count": 1, "next": None, "previous": None, "results": [{"status": "pending"}]},
+                )
+            return Response(
+                200,
+                json={
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {
+                            "status": "success",
+                            "result_data": {"document_id": 551},
+                            "related_document_ids": [551],
+                        }
+                    ],
+                },
+            )
+
+        respx.get("http://localhost:8000/api/tasks/").mock(side_effect=task_side_effect)
+
+        result = await client.wait_for_task("task-abc", timeout=10)
+        assert result.status == "success"
+        assert result.doc_id == 551
+
+    @respx.mock
+    async def test_task_success_v3_related_ids_only(self, client):
+        """3.x success with only related_document_ids populated."""
+        respx.get("http://localhost:8000/api/tasks/").mock(
+            return_value=Response(
+                200,
+                json={"count": 1, "results": [{"status": "success", "related_document_ids": [12]}]},
+            )
+        )
+        result = await client.wait_for_task("task-abc", timeout=4)
+        assert result.status == "success"
+        assert result.doc_id == 12
+
+    @respx.mock
+    async def test_task_duplicate_v3(self, client):
+        """3.x reports duplicates via result_data.duplicate_of."""
+        respx.get("http://localhost:8000/api/tasks/").mock(
+            return_value=Response(
+                200,
+                json={
+                    "count": 1,
+                    "results": [{"status": "failure", "result_data": {"duplicate_of": 42}}],
+                },
+            )
+        )
+        result = await client.wait_for_task("task-abc", timeout=4)
+        assert result.status == "duplicate"
+        assert result.doc_id == 42
+
+    @respx.mock
+    async def test_task_failure_v3_reason(self, client):
+        """3.x failure messages live in result_data.reason / error_message."""
+        respx.get("http://localhost:8000/api/tasks/").mock(
+            return_value=Response(
+                200,
+                json={
+                    "count": 1,
+                    "results": [{"status": "failure", "result_data": {"reason": "OCR failed"}}],
+                },
+            )
+        )
+        result = await client.wait_for_task("task-abc", timeout=4)
+        assert result.status == "failed"
+        assert "OCR failed" in result.message
+
+    @respx.mock
+    async def test_task_empty_paginated_response(self, client):
+        respx.get("http://localhost:8000/api/tasks/").mock(return_value=Response(200, json={"count": 0, "results": []}))
+        result = await client.wait_for_task("task-abc", timeout=4)
+        assert result.status == "timeout"
+
+    @respx.mock
     async def test_task_polling_error_recovery(self, client):
         """Errors during polling should not abort, just continue."""
         call_count = 0
@@ -779,3 +865,25 @@ class TestParseDocument:
         doc = client._parse_document(_make_doc_response())
         assert doc.created == "2025-01-15"
         assert doc.added == "2025-01-15"
+
+
+# ---------------------------------------------------------------------------
+# _extract_task_doc_id
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTaskDocId:
+    def test_v2_related_document(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document": "42"}) == 42
+
+    def test_v3_result_data(self):
+        assert PaperlessClient._extract_task_doc_id({"result_data": {"document_id": 7}}) == 7
+
+    def test_v3_related_ids(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document_ids": [9, 10]}) == 9
+
+    def test_missing_everywhere(self):
+        assert PaperlessClient._extract_task_doc_id({}) is None
+
+    def test_unparseable_id(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document": "not-a-number"}) is None
