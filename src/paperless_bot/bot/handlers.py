@@ -211,7 +211,7 @@ class PaperlessBot:
     async def _process_upload(self, chat_id: int, status_msg: Message, file_bytes: bytes, filename: str):
         """Upload file to Paperless and handle the task result (success, duplicate, failure, timeout)."""
         task_id = await self.client.upload_document(file_bytes, filename)
-        logger.info("Uploaded %r to Paperless, task %s", filename, task_id)
+        logger.info("Uploaded %d bytes to Paperless, task %s", len(file_bytes), task_id)
         await _safe_edit(status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN)
 
         result = await self.client.wait_for_task(task_id, timeout=self.config.upload_task_timeout)
@@ -267,9 +267,7 @@ class PaperlessBot:
 
         chat_id = update.effective_chat.id
         doc = update.message.document
-        logger.info(
-            "Received document %r (%s bytes) from user %s", doc.file_name, doc.file_size, update.effective_user.id
-        )
+        logger.info("Received document (%s bytes, update_id=%s)", doc.file_size, update.update_id)
         status_msg = await update.message.reply_text(
             f"Uploading `{doc.file_name}` to Paperless-NGX...", parse_mode=ParseMode.MARKDOWN
         )
@@ -289,7 +287,7 @@ class PaperlessBot:
 
         chat_id = update.effective_chat.id
         photo = update.message.photo[-1]  # Highest resolution
-        logger.info("Received photo (%s bytes) from user %s", photo.file_size, update.effective_user.id)
+        logger.info("Received photo (%s bytes, update_id=%s)", photo.file_size, update.update_id)
         status_msg = await update.message.reply_text("Uploading photo to Paperless-NGX...")
 
         try:
@@ -789,7 +787,9 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
     if isinstance(context.error, NetworkError | TimedOut):
         logger.warning("Telegram network error (will retry): %s", context.error)
         return
-    logger.error("Unhandled error while processing update %s", update, exc_info=context.error)
+    # Log only the update_id — the full Update repr contains message text and file names
+    update_id = getattr(update, "update_id", None)
+    logger.error("Unhandled error while processing update_id=%s", update_id, exc_info=context.error)
 
 
 def create_bot(config: Config) -> Application:
