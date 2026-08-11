@@ -4,37 +4,89 @@ Can be run as: python -m paperless_bot
 """
 
 import argparse
+import asyncio
 import logging
 import sys
 import threading
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from paperless_bot import __version__
+from paperless_bot.api.client import PaperlessClient
 from paperless_bot.bot.handlers import create_bot
 from paperless_bot.config import Config, setup_logging
 
 logger = logging.getLogger(__name__)
 
 
-def create_health_app() -> FastAPI:
-    """Create a minimal FastAPI app for health checks."""
+def create_health_app(config: Config) -> FastAPI:
+    """Create a FastAPI app whose /health reflects Paperless connectivity.
+
+    Returning 200 unconditionally would keep the Docker healthcheck green
+    while every user command fails; instead the endpoint performs a cheap
+    authenticated request against Paperless and reports 503 when it fails.
+    """
     app = FastAPI(title="Paperless Telegram Bot", version=__version__, docs_url=None, redoc_url=None)
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": __version__}
+        checks = {"bot": "ok"}
+        healthy = True
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{config.paperless_url.rstrip('/')}/api/statistics/",
+                    headers={"Authorization": f"Token {config.paperless_token}"},
+                )
+                resp.raise_for_status()
+            checks["paperless"] = "ok"
+        except Exception as exc:  # noqa: BLE001 — any failure means degraded
+            checks["paperless"] = f"unreachable: {type(exc).__name__}"
+            healthy = False
+
+        return JSONResponse(
+            {"status": "ok" if healthy else "degraded", "version": __version__, "checks": checks},
+            status_code=200 if healthy else 503,
+        )
 
     return app
 
 
-def run_health_server(port: int):
+def run_health_server(config: Config):
     """Run the health check HTTP server in a background thread."""
-    app = create_health_app()
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
-    server = uvicorn.Server(config)
+    app = create_health_app(config)
+    uv_config = uvicorn.Config(app, host="0.0.0.0", port=config.health_port, log_level="warning")
+    server = uvicorn.Server(uv_config)
     server.run()
+
+
+def validate_paperless_connection(config: Config) -> bool:
+    """Probe Paperless once at startup so misconfiguration fails fast and loud."""
+
+    async def _probe():
+        client = PaperlessClient(config.paperless_url, config.paperless_token)
+        try:
+            return await client.probe()
+        finally:
+            await client.close()
+
+    try:
+        info = asyncio.run(_probe())
+    except Exception as exc:
+        logger.error("Cannot talk to Paperless-NGX at %s: %s", config.paperless_url, exc)
+        logger.error("Check PAPERLESS_URL and PAPERLESS_TOKEN before restarting.")
+        return False
+
+    logger.info(
+        "Connected to Paperless-NGX %s (API v%s) at %s",
+        info["server_version"],
+        info["api_version"],
+        config.paperless_url,
+    )
+    return True
 
 
 def cmd_run(args):
@@ -44,15 +96,18 @@ def cmd_run(args):
 
     logger.info(f"Paperless Telegram Bot v{__version__} starting...")
 
+    if not validate_paperless_connection(config):
+        sys.exit(1)
+
     # Start health check server in background
-    health_thread = threading.Thread(target=run_health_server, args=(config.health_port,), daemon=True)
+    health_thread = threading.Thread(target=run_health_server, args=(config,), daemon=True)
     health_thread.start()
     logger.info(f"Health check endpoint running on port {config.health_port}")
 
     # Start the Telegram bot (blocking)
     bot_app = create_bot(config)
     logger.info("Starting Telegram bot polling...")
-    bot_app.run_polling(drop_pending_updates=True)
+    bot_app.run_polling(drop_pending_updates=config.drop_pending_updates)
 
 
 def main():

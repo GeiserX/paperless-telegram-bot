@@ -13,6 +13,7 @@ def _set_required_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("PAPERLESS_URL", "http://localhost:8000")
     monkeypatch.setenv("PAPERLESS_TOKEN", "test-api-token")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "12345")
 
 
 def test_loads_required_vars():
@@ -26,7 +27,7 @@ def test_default_values():
     config = Config()
     assert config.max_search_results == 10
     assert config.health_port == 8080
-    assert config.telegram_allowed_users == set()
+    assert config.telegram_allowed_users == {12345}  # from base env fixture
     assert config.remove_inbox_on_done is True
     assert config.inbox_tag is None
 
@@ -39,8 +40,27 @@ def test_allowed_users_parsing(monkeypatch):
 
 def test_allowed_users_empty(monkeypatch):
     monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "")
+    with pytest.raises(ValueError, match="ALLOW_OPEN_ACCESS"):
+        Config()
+
+
+def test_allowed_users_empty_with_open_access_opt_in(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "")
+    monkeypatch.setenv("ALLOW_OPEN_ACCESS", "true")
     config = Config()
     assert config.telegram_allowed_users == set()
+    assert config.allow_open_access is True
+
+
+def test_drop_pending_updates_default_false(monkeypatch):
+    config = Config()
+    assert config.drop_pending_updates is False
+
+
+def test_drop_pending_updates_enabled(monkeypatch):
+    monkeypatch.setenv("DROP_PENDING_UPDATES", "true")
+    config = Config()
+    assert config.drop_pending_updates is True
 
 
 def test_missing_required_var(monkeypatch):
