@@ -6,7 +6,7 @@ All Paperless API interaction goes through this module.
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -27,6 +27,7 @@ class Document:
     created: str
     added: str
     content: str | None = None
+    tag_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -153,6 +154,12 @@ class PaperlessClient:
         resp = await self._client.get(f"/api/documents/{doc_id}/")
         resp.raise_for_status()
         return self._parse_document(resp.json())
+
+    async def get_document_tag_ids(self, doc_id: int) -> list[int]:
+        """Get the current tag IDs of a document (fresh, not from cache)."""
+        resp = await self._client.get(f"/api/documents/{doc_id}/")
+        resp.raise_for_status()
+        return list(resp.json().get("tags", []))
 
     async def upload_document(
         self,
@@ -405,4 +412,5 @@ class PaperlessClient:
             created=data.get("created", "")[:10],
             added=data.get("added", "")[:10],
             content=content or None,
+            tag_ids=list(tag_ids),
         )

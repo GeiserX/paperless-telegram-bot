@@ -1,5 +1,6 @@
 """Tests for bot handlers."""
 
+import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -186,7 +187,7 @@ class TestHelpers:
     def test_format_document_list_basic(self, bot):
         docs = [_make_doc()]
         text = PaperlessBot._format_document_list(docs)
-        assert "*Test Doc*" in text
+        assert "<b>Test Doc</b>" in text
         assert "Corr: ACME" in text
         assert "Type: Bill" in text
         assert "Tags: invoice" in text
@@ -202,7 +203,7 @@ class TestHelpers:
             added="2025-01-15",
         )
         text = PaperlessBot._format_document_list([doc])
-        assert "*Test Doc*" in text
+        assert "<b>Test Doc</b>" in text
         assert "Corr:" not in text
         assert "Type:" not in text
         assert "Tags:" not in text
@@ -212,13 +213,12 @@ class TestHelpers:
         text = PaperlessBot._format_document_list([doc])
         assert "This is the snippet content" in text
 
-    def test_format_document_list_escapes_content_markdown(self, bot):
-        doc = _make_doc(content="content *bold* _italic_ `code`")
+    def test_format_document_list_escapes_content_html(self, bot):
+        doc = _make_doc(content="content <b>bold</b> & more")
         text = PaperlessBot._format_document_list([doc])
-        # Special chars should be stripped from content snippet
-        assert "*bold*" not in text
-        assert "_italic_" not in text
-        assert "`code`" not in text
+        # HTML in content must be escaped so it cannot break the message
+        assert "&lt;b&gt;bold&lt;/b&gt;" in text
+        assert "<b>bold</b>" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +233,7 @@ class TestCommandHandlers:
         update.message.reply_text.assert_awaited_once()
         call_args = update.message.reply_text.call_args
         assert "Paperless-NGX Bot" in call_args.args[0]
-        assert call_args.kwargs["parse_mode"] == ParseMode.MARKDOWN
+        assert call_args.kwargs["parse_mode"] == ParseMode.HTML
 
     async def test_cmd_start_unauthorized(self, bot):
         update = _make_update(user_id=99999)
@@ -370,6 +370,7 @@ class TestUploadHandlers:
         doc_mock = MagicMock()
         doc_mock.file_id = "file-123"
         doc_mock.file_name = "test.pdf"
+        doc_mock.file_size = 1234
         update.message.document = doc_mock
         update.message.reply_text = AsyncMock(return_value=MagicMock())
 
@@ -393,6 +394,7 @@ class TestUploadHandlers:
         doc_mock = MagicMock()
         doc_mock.file_id = "file-123"
         doc_mock.file_name = "test.pdf"
+        doc_mock.file_size = 1234
         update.message.document = doc_mock
         status_msg = MagicMock()
         status_msg.edit_text = AsyncMock()
@@ -554,7 +556,7 @@ class TestHandleText:
 
     async def test_pending_create_tag(self, bot):
         update = _make_update(chat_id=100, text="New Tag Name")
-        bot.pending_creates[100] = {"type": "tag", "doc_id": 42}
+        bot.pending_creates[100] = {"type": "tag", "doc_id": 42, "ts": time.monotonic()}
         with patch.object(bot, "_create_new_item", new_callable=AsyncMock) as mock_create:
             await bot.handle_text(update, MagicMock())
             mock_create.assert_awaited_once()
@@ -750,14 +752,21 @@ class TestCallbackHandler:
         update = _make_callback_update(chat_id=100, data="tagok:42")
         bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {1, 2}}
         bot.client._tags_cache = {1: "tag1", 2: "tag2"}
+        bot.client._inbox_tag_id = None
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
         bot.client.update_document = AsyncMock(return_value=_make_doc())
         await bot.handle_callback(update, MagicMock())
-        bot.client.update_document.assert_awaited_once()
+        bot.client.update_document.assert_awaited_once_with(42, tags=[1, 2])
 
     async def test_tagok_no_tags(self, bot):
         update = _make_callback_update(chat_id=100, data="tagok:42")
         bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.client._tags_cache = {}
+        bot.client._inbox_tag_id = None
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
+        bot.client.update_document = AsyncMock()
         await bot.handle_callback(update, MagicMock())
+        bot.client.update_document.assert_not_awaited()
         call_text = update.callback_query.edit_message_text.call_args.args[0]
         assert "No tags selected" in call_text
 
@@ -956,3 +965,154 @@ class TestErrorHandler:
         with caplog.at_level("ERROR", logger="paperless_bot.bot.handlers"):
             await _error_handler("some-update", context)
         assert "Unhandled error" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# v0.7.0 hardening behaviors
+# ---------------------------------------------------------------------------
+
+
+class TestHtmlEscaping:
+    def test_h_escapes_html(self):
+        from paperless_bot.bot.handlers import _h
+
+        assert _h("<b>x</b> & y") == "&lt;b&gt;x&lt;/b&gt; &amp; y"
+
+    def test_h_leaves_markdown_chars_alone(self):
+        from paperless_bot.bot.handlers import _h
+
+        assert _h("tax_2024 *bold* `code`") == "tax_2024 *bold* `code`"
+
+
+class TestSafeQueryEdit:
+    async def test_swallows_not_modified(self, caplog):
+        from paperless_bot.bot.handlers import _safe_query_edit
+
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(side_effect=BadRequest("Message is not modified"))
+        with caplog.at_level("WARNING", logger="paperless_bot.bot.handlers"):
+            assert await _safe_query_edit(query, "same text") is False
+        assert "not modified" not in caplog.text
+
+    async def test_logs_other_bad_request(self, caplog):
+        from paperless_bot.bot.handlers import _safe_query_edit
+
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(side_effect=BadRequest("Can't parse entities"))
+        with caplog.at_level("WARNING", logger="paperless_bot.bot.handlers"):
+            assert await _safe_query_edit(query, "bad") is False
+        assert "BadRequest" in caplog.text
+
+    async def test_network_error(self):
+        from paperless_bot.bot.handlers import _safe_query_edit
+
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(side_effect=NetworkError("boom"))
+        assert await _safe_query_edit(query, "text") is False
+
+    async def test_reply_markup_only(self):
+        from paperless_bot.bot.handlers import _safe_query_edit
+
+        query = MagicMock()
+        query.edit_message_reply_markup = AsyncMock()
+        assert await _safe_query_edit(query, reply_markup=None) is True
+        query.edit_message_reply_markup.assert_awaited_once()
+
+
+class TestOversizeAndFilename:
+    async def test_document_over_20mb_rejected(self, bot):
+        from paperless_bot.bot.handlers import TELEGRAM_DOWNLOAD_LIMIT
+
+        update = _make_update()
+        doc_mock = MagicMock()
+        doc_mock.file_size = TELEGRAM_DOWNLOAD_LIMIT + 1
+        update.message.document = doc_mock
+        ctx = MagicMock()
+        ctx.bot.get_file = AsyncMock()
+
+        await bot.handle_document(update, ctx)
+        ctx.bot.get_file.assert_not_awaited()
+        msg = update.message.reply_text.call_args.args[0]
+        assert "20MB" in msg
+
+    async def test_document_without_filename_gets_fallback(self, bot):
+        update = _make_update()
+        doc_mock = MagicMock()
+        doc_mock.file_id = "file-123"
+        doc_mock.file_name = None
+        doc_mock.file_size = 1234
+        update.message.document = doc_mock
+        update.message.date = datetime(2026, 8, 11, 12, 0, 0, tzinfo=UTC)
+        update.message.reply_text = AsyncMock(return_value=MagicMock())
+
+        ctx = MagicMock()
+        tg_file = AsyncMock()
+        tg_file.download_as_bytearray = AsyncMock(return_value=bytearray(b"data"))
+        ctx.bot.get_file = AsyncMock(return_value=tg_file)
+
+        with patch.object(bot, "_process_upload", new_callable=AsyncMock) as mock_upload:
+            await bot.handle_document(update, ctx)
+            filename = mock_upload.call_args.args[3]
+            assert filename == "document_20260811_120000"
+
+
+class TestStaleKeyboards:
+    async def test_tagok_stale_keyboard_never_patches(self, bot):
+        update = _make_callback_update(chat_id=100, data="tagok:42")
+        # A newer upload replaced the pending entry
+        bot.pending_uploads[100] = {"doc_id": 99, "selected_tags": set()}
+        bot.client.update_document = AsyncMock()
+        bot.client.get_document_tag_ids = AsyncMock()
+        await bot.handle_callback(update, MagicMock())
+        bot.client.update_document.assert_not_awaited()
+        bot.client.get_document_tag_ids.assert_not_awaited()
+        call_text = update.callback_query.edit_message_text.call_args.args[0]
+        assert "older upload" in call_text
+
+    async def test_tag_toggle_stale_keyboard_ignored(self, bot):
+        update = _make_callback_update(chat_id=100, data="tag:o:5:42")
+        bot.pending_uploads[100] = {"doc_id": 99, "selected_tags": set()}
+        await bot.handle_callback(update, MagicMock())
+        assert bot.pending_uploads[100]["selected_tags"] == set()
+
+    async def test_tagok_preserves_inbox_tag(self, bot):
+        update = _make_callback_update(chat_id=100, data="tagok:42")
+        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {1}}
+        bot.client._tags_cache = {1: "tag1", 2: "old", 9: "Inbox"}
+        bot.client._inbox_tag_id = 9
+        # Document currently has the inbox tag (9) and an unchecked visible tag (2)
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[9, 2])
+        bot.client.update_document = AsyncMock(return_value=_make_doc())
+        await bot.handle_callback(update, MagicMock())
+        # Inbox tag kept, unchecked visible tag 2 removed, selection 1 added
+        bot.client.update_document.assert_awaited_once_with(42, tags=[1, 9])
+
+
+class TestPendingCreateTTL:
+    async def test_expired_pending_create_falls_through_to_search(self, bot):
+        update = _make_update(chat_id=100, text="some search")
+        bot.pending_creates[100] = {"type": "tag", "doc_id": 42, "ts": time.monotonic() - 3600}
+        with (
+            patch.object(bot, "_create_new_item", new_callable=AsyncMock) as mock_create,
+            patch.object(bot, "_do_search", new_callable=AsyncMock) as mock_search,
+        ):
+            await bot.handle_text(update, MagicMock())
+            mock_create.assert_not_awaited()
+            mock_search.assert_awaited_once()
+
+    async def test_upload_clears_pending_create(self, bot):
+        update = _make_update(chat_id=100)
+        doc_mock = MagicMock()
+        doc_mock.file_id = "f"
+        doc_mock.file_name = "a.pdf"
+        doc_mock.file_size = 10
+        update.message.document = doc_mock
+        update.message.reply_text = AsyncMock(return_value=MagicMock())
+        bot.pending_creates[100] = {"type": "tag", "doc_id": 42, "ts": time.monotonic()}
+        ctx = MagicMock()
+        tg_file = AsyncMock()
+        tg_file.download_as_bytearray = AsyncMock(return_value=bytearray(b"d"))
+        ctx.bot.get_file = AsyncMock(return_value=tg_file)
+        with patch.object(bot, "_process_upload", new_callable=AsyncMock):
+            await bot.handle_document(update, ctx)
+        assert 100 not in bot.pending_creates

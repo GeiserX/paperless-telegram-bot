@@ -887,3 +887,12 @@ class TestExtractTaskDocId:
 
     def test_unparseable_id(self):
         assert PaperlessClient._extract_task_doc_id({"related_document": "not-a-number"}) is None
+
+
+class TestGetDocumentTagIds:
+    @respx.mock
+    async def test_returns_fresh_tag_ids(self, client):
+        respx.get("http://localhost:8000/api/documents/42/").mock(
+            return_value=Response(200, json=_make_doc_response(tags=[3, 9]))
+        )
+        assert await client.get_document_tag_ids(42) == [3, 9]

@@ -2,9 +2,11 @@
 Telegram bot handlers for Paperless-NGX management.
 """
 
+import html
 import logging
+import time
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
@@ -31,6 +33,23 @@ logger = logging.getLogger(__name__)
 # Telegram bot API file size limit: 50 MB
 TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024
 
+# Telegram bots can only DOWNLOAD files up to 20 MB via get_file
+TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024
+
+# Seconds before a pending "type a name for the new tag/…" prompt expires
+PENDING_CREATE_TTL = 10 * 60
+
+
+def _h(text: object) -> str:
+    """HTML-escape user/Paperless-controlled text for ParseMode.HTML messages.
+
+    Legacy Markdown has no escape mechanism at all, so any * _ ` [ in a
+    document title, tag, or query either corrupts formatting or makes
+    Telegram reject the whole message. HTML mode only needs &, <, > escaped.
+    """
+    return html.escape(str(text), quote=False)
+
+
 # Bot commands shown in Telegram's command menu
 BOT_COMMANDS = [
     BotCommand("search", "Search documents"),
@@ -53,6 +72,27 @@ async def _safe_edit(msg: Message, text: str, **kwargs) -> bool:
         logger.warning("Telegram edit timed out")
         return False
     except NetworkError as exc:
+        logger.warning(f"Telegram edit network error: {exc}")
+        return False
+
+
+async def _safe_query_edit(query: CallbackQuery, text: str | None = None, **kwargs) -> bool:
+    """Edit a callback query's message, swallowing common failures.
+
+    A double-tap on a button replays the same edit and Telegram answers
+    BadRequest "Message is not modified" — that is not a failure.
+    """
+    try:
+        if text is None:
+            await query.edit_message_reply_markup(**kwargs)
+        else:
+            await query.edit_message_text(text, **kwargs)
+        return True
+    except BadRequest as exc:
+        if "not modified" not in str(exc).lower():
+            logger.warning(f"Telegram edit failed (BadRequest): {exc}")
+        return False
+    except NetworkError as exc:  # includes TimedOut
         logger.warning(f"Telegram edit network error: {exc}")
         return False
 
@@ -100,6 +140,17 @@ class PaperlessBot:
             key=lambda x: x[1],
         )
 
+    def _pending_for(self, chat_id: int, doc_id: int) -> dict | None:
+        """Return the chat's pending-upload state only if it belongs to this document.
+
+        A newer upload overwrites the chat's pending entry while older metadata
+        keyboards may still be live; acting on them must not touch the new state.
+        """
+        pending = self.pending_uploads.get(chat_id)
+        if pending and pending.get("doc_id") == doc_id:
+            return pending
+        return None
+
     # =========================================================================
     # COMMAND HANDLERS
     # =========================================================================
@@ -110,16 +161,16 @@ class PaperlessBot:
             return
 
         await update.message.reply_text(
-            "*Paperless-NGX Bot*\n\n"
+            "<b>Paperless-NGX Bot</b>\n\n"
             "Send me a document or photo to upload it.\n"
             "Send any text to search your documents.\n\n"
             "Commands:\n"
-            "/search <query> \u2014 Search documents\n"
+            "/search &lt;query&gt; \u2014 Search documents\n"
             "/recent \u2014 Recently added documents\n"
             "/inbox \u2014 Documents in inbox\n"
             "/stats \u2014 Paperless statistics\n"
             "/help \u2014 Show this message",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
         )
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,11 +202,11 @@ class PaperlessBot:
                 await update.message.reply_text("No documents found.")
                 return
 
-            text = "*Recent Documents*\n\n"
+            text = "<b>Recent Documents</b>\n\n"
             text += self._format_document_list(documents)
             await update.message.reply_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=build_document_list_keyboard(documents),
             )
         except Exception:
@@ -173,11 +224,11 @@ class PaperlessBot:
                 await update.message.reply_text("Inbox is empty.")
                 return
 
-            text = f"*Inbox* ({total} documents)\n\n"
+            text = f"<b>Inbox</b> ({total} documents)\n\n"
             text += self._format_document_list(documents)
             await update.message.reply_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=build_document_list_keyboard(documents, inbox_mode=True),
             )
         except Exception:
@@ -192,14 +243,14 @@ class PaperlessBot:
         try:
             stats = await self.client.get_statistics()
             text = (
-                "*Paperless-NGX Statistics*\n\n"
+                "<b>Paperless-NGX Statistics</b>\n\n"
                 f"Documents: {stats.get('documents_total', 'N/A')}\n"
                 f"In inbox: {stats.get('documents_inbox', 'N/A')}\n"
                 f"Correspondents: {stats.get('correspondents_total', 'N/A')}\n"
                 f"Tags: {stats.get('tags_total', 'N/A')}\n"
                 f"Document types: {stats.get('document_types_total', 'N/A')}"
             )
-            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML)
         except Exception:
             logger.exception("Failed to fetch statistics")
             await update.message.reply_text("Failed to fetch statistics.")
@@ -212,18 +263,24 @@ class PaperlessBot:
         """Upload file to Paperless and handle the task result (success, duplicate, failure, timeout)."""
         task_id = await self.client.upload_document(file_bytes, filename)
         logger.info("Uploaded %d bytes to Paperless, task %s", len(file_bytes), task_id)
-        await _safe_edit(status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN)
+        await _safe_edit(
+            status_msg, f"Uploaded! Processing... (task: <code>{task_id[:8]}</code>)", parse_mode=ParseMode.HTML
+        )
 
         result = await self.client.wait_for_task(task_id, timeout=self.config.upload_task_timeout)
         logger.info("Task %s finished with status %r (doc_id=%s)", task_id, result.status, result.doc_id)
 
         if result.status == "success" and result.doc_id:
             document = await self.client.get_document(result.doc_id)
-            self.pending_uploads[chat_id] = {"doc_id": result.doc_id, "selected_tags": set()}
+            # Pre-select the tags Paperless already assigned (classifier/workflows),
+            # minus the auto-managed inbox tag, so the keyboard reflects reality.
+            inbox_id = self.client._inbox_tag_id
+            preselected = {tid for tid in document.tag_ids if tid != inbox_id}
+            self.pending_uploads[chat_id] = {"doc_id": result.doc_id, "selected_tags": preselected}
             await _safe_edit(
                 status_msg,
-                f"Document processed: *{document.title}*\n\nSet metadata?",
-                parse_mode=ParseMode.MARKDOWN,
+                f"Document processed: <b>{_h(document.title)}</b>\n\nSet metadata?",
+                parse_mode=ParseMode.HTML,
                 reply_markup=build_metadata_keyboard(result.doc_id),
             )
 
@@ -236,9 +293,9 @@ class PaperlessBot:
                     )
                     await _safe_edit(
                         status_msg,
-                        f"Duplicate detected. This file already exists as *{existing.title}* (#{existing.id}).\n"
+                        f"Duplicate detected. This file already exists as <b>{_h(existing.title)}</b> (#{existing.id}).\n"
                         f"Added: {existing.added}",
-                        parse_mode=ParseMode.MARKDOWN,
+                        parse_mode=ParseMode.HTML,
                         reply_markup=keyboard,
                     )
                 except Exception:
@@ -266,16 +323,28 @@ class PaperlessBot:
             return
 
         chat_id = update.effective_chat.id
+        self.pending_creates.pop(chat_id, None)
         doc = update.message.document
         logger.info("Received document (%s bytes, update_id=%s)", doc.file_size, update.update_id)
+
+        if doc.file_size and doc.file_size > TELEGRAM_DOWNLOAD_LIMIT:
+            await update.message.reply_text(
+                f"File is too large ({doc.file_size / 1024 / 1024:.1f}MB). "
+                "Telegram only lets bots download files up to 20MB — "
+                "please add it through the Paperless web UI or consumption folder instead."
+            )
+            return
+
+        # file_name is optional in the Bot API (e.g. some forwarded documents)
+        filename = doc.file_name or f"document_{update.message.date.strftime('%Y%m%d_%H%M%S')}"
         status_msg = await update.message.reply_text(
-            f"Uploading `{doc.file_name}` to Paperless-NGX...", parse_mode=ParseMode.MARKDOWN
+            f"Uploading <code>{_h(filename)}</code> to Paperless-NGX...", parse_mode=ParseMode.HTML
         )
 
         try:
             tg_file = await context.bot.get_file(doc.file_id)
             file_bytes = bytes(await tg_file.download_as_bytearray())
-            await self._process_upload(chat_id, status_msg, file_bytes, doc.file_name)
+            await self._process_upload(chat_id, status_msg, file_bytes, filename)
         except Exception:
             logger.exception("Upload failed")
             await _safe_edit(status_msg, "Upload failed. Check logs.")
@@ -286,6 +355,7 @@ class PaperlessBot:
             return
 
         chat_id = update.effective_chat.id
+        self.pending_creates.pop(chat_id, None)
         photo = update.message.photo[-1]  # Highest resolution
         logger.info("Received photo (%s bytes, update_id=%s)", photo.file_size, update.update_id)
         status_msg = await update.message.reply_text("Uploading photo to Paperless-NGX...")
@@ -315,7 +385,7 @@ class PaperlessBot:
 
         # Check if we're waiting for a new metadata item name
         pending = self.pending_creates.pop(chat_id, None)
-        if pending:
+        if pending and time.monotonic() - pending.get("ts", 0.0) <= PENDING_CREATE_TTL:
             await self._create_new_item(update, context, chat_id, text, pending)
             return
 
@@ -337,8 +407,8 @@ class PaperlessBot:
                 tags = self._user_visible_tags()
                 selected = upload.get("selected_tags", set()) if upload else set()
                 await update.message.reply_text(
-                    f"Tag *{tag.name}* created and selected.\n\nSelect tags:",
-                    parse_mode=ParseMode.MARKDOWN,
+                    f"Tag <b>{_h(tag.name)}</b> created and selected.\n\nSelect tags:",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=build_tag_selection_keyboard(tags, selected, doc_id),
                 )
 
@@ -346,8 +416,8 @@ class PaperlessBot:
                 corr = await self.client.create_correspondent(name)
                 await self.client.update_document(doc_id, correspondent=corr.id)
                 await update.message.reply_text(
-                    f"Correspondent *{corr.name}* created and assigned.\n\nContinue setting metadata?",
-                    parse_mode=ParseMode.MARKDOWN,
+                    f"Correspondent <b>{_h(corr.name)}</b> created and assigned.\n\nContinue setting metadata?",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=build_metadata_keyboard(doc_id),
                 )
 
@@ -355,8 +425,8 @@ class PaperlessBot:
                 dt = await self.client.create_document_type(name)
                 await self.client.update_document(doc_id, document_type=dt.id)
                 await update.message.reply_text(
-                    f"Document type *{dt.name}* created and assigned.\n\nContinue setting metadata?",
-                    parse_mode=ParseMode.MARKDOWN,
+                    f"Document type <b>{_h(dt.name)}</b> created and assigned.\n\nContinue setting metadata?",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=build_metadata_keyboard(doc_id),
                 )
 
@@ -373,7 +443,7 @@ class PaperlessBot:
         self.search_queries[chat_id] = query
 
         status_msg = await context.bot.send_message(
-            chat_id=chat_id, text=f"Searching: `{query}`...", parse_mode=ParseMode.MARKDOWN
+            chat_id=chat_id, text=f"Searching: <code>{_h(query)}</code>...", parse_mode=ParseMode.HTML
         )
 
         try:
@@ -381,15 +451,17 @@ class PaperlessBot:
                 query, page=page, page_size=self.config.max_search_results
             )
             if not documents:
-                await _safe_edit(status_msg, f"No documents found for: `{query}`", parse_mode=ParseMode.MARKDOWN)
+                await _safe_edit(
+                    status_msg, f"No documents found for: <code>{_h(query)}</code>", parse_mode=ParseMode.HTML
+                )
                 return
 
-            text = f"*Search: {query}* ({total} results)\n\n"
+            text = f"<b>Search: {_h(query)}</b> ({total} results)\n\n"
             text += self._format_document_list(documents)
             await _safe_edit(
                 status_msg,
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=build_search_results_keyboard(documents, page, total, self.config.max_search_results),
             )
         except Exception:
@@ -465,7 +537,7 @@ class PaperlessBot:
         query = update.callback_query
         doc_id = int(data.split(":")[1])
 
-        self.pending_creates[chat_id] = {"type": item_type, "doc_id": doc_id}
+        self.pending_creates[chat_id] = {"type": item_type, "doc_id": doc_id, "ts": time.monotonic()}
 
         labels = {"tag": "tag", "corr": "correspondent", "dtype": "document type"}
         label = labels[item_type]
@@ -473,7 +545,8 @@ class PaperlessBot:
         cancel_keyboard = InlineKeyboardMarkup(
             [[InlineKeyboardButton("Cancel", callback_data=f"ccr:{item_type}:{doc_id}")]]
         )
-        await query.edit_message_text(
+        await _safe_query_edit(
+            query,
             f"Type the name for the new {label} as a text message:",
             reply_markup=cancel_keyboard,
         )
@@ -492,20 +565,24 @@ class PaperlessBot:
         await self.client._ensure_cache()
         if item_type == "tag":
             tags = self._user_visible_tags()
-            selected = self.pending_uploads.get(chat_id, {}).get("selected_tags", set())
-            await query.edit_message_text(
+            pending = self._pending_for(chat_id, doc_id)
+            selected = pending.get("selected_tags", set()) if pending else set()
+            await _safe_query_edit(
+                query,
                 "Select tags:",
                 reply_markup=build_tag_selection_keyboard(tags, selected, doc_id),
             )
         elif item_type == "corr":
             correspondents = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 "Select correspondent:",
                 reply_markup=build_single_select_keyboard(correspondents, "corr", doc_id),
             )
         elif item_type == "dtype":
             doc_types = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 "Select document type:",
                 reply_markup=build_single_select_keyboard(doc_types, "dtype", doc_id),
             )
@@ -522,8 +599,10 @@ class PaperlessBot:
         if action == "tags":
             await self.client._ensure_cache()
             tags = self._user_visible_tags()
-            selected = self.pending_uploads.get(chat_id, {}).get("selected_tags", set())
-            await query.edit_message_text(
+            pending = self._pending_for(chat_id, doc_id)
+            selected = pending.get("selected_tags", set()) if pending else set()
+            await _safe_query_edit(
+                query,
                 "Select tags:",
                 reply_markup=build_tag_selection_keyboard(tags, selected, doc_id),
             )
@@ -531,7 +610,8 @@ class PaperlessBot:
         elif action == "corr":
             await self.client._ensure_cache()
             correspondents = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 "Select correspondent:",
                 reply_markup=build_single_select_keyboard(correspondents, "corr", doc_id),
             )
@@ -539,22 +619,25 @@ class PaperlessBot:
         elif action == "dtype":
             await self.client._ensure_cache()
             doc_types = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 "Select document type:",
                 reply_markup=build_single_select_keyboard(doc_types, "dtype", doc_id),
             )
 
         elif action == "done":
-            self.pending_uploads.pop(chat_id, None)
+            if self._pending_for(chat_id, doc_id):
+                self.pending_uploads.pop(chat_id, None)
             doc_url = self._document_url(doc_id)
             if self.config.remove_inbox_on_done:
                 try:
                     await self.client.remove_inbox_tag(doc_id)
                 except Exception:
                     logger.exception("Failed to remove Inbox tag from document %d", doc_id)
-            await query.edit_message_text(
-                f"Metadata saved.\n\n[Open in Paperless]({doc_url})",
-                parse_mode=ParseMode.MARKDOWN,
+            await _safe_query_edit(
+                query,
+                f'Metadata saved.\n\n<a href="{doc_url}">Open in Paperless</a>',
+                parse_mode=ParseMode.HTML,
             )
 
     async def _handle_tag_toggle(self, update, context, chat_id: int, data: str):
@@ -565,8 +648,11 @@ class PaperlessBot:
         tag_id = int(parts[2])
         doc_id = int(parts[3])
 
-        pending = self.pending_uploads.get(chat_id)
+        pending = self._pending_for(chat_id, doc_id)
         if not pending:
+            await _safe_query_edit(
+                query, "This keyboard belongs to an older upload. Send the document again to edit it."
+            )
             return
 
         selected = pending.get("selected_tags", set())
@@ -585,7 +671,8 @@ class PaperlessBot:
         except ValueError:
             page = 0
 
-        await query.edit_message_reply_markup(
+        await _safe_query_edit(
+            query,
             reply_markup=build_tag_selection_keyboard(tags, selected, doc_id, page=page),
         )
 
@@ -596,38 +683,52 @@ class PaperlessBot:
         page = int(parts[1])
         doc_id = int(parts[2])
 
-        pending = self.pending_uploads.get(chat_id)
+        pending = self._pending_for(chat_id, doc_id)
         selected = pending.get("selected_tags", set()) if pending else set()
         tags = self._user_visible_tags()
 
-        await query.edit_message_reply_markup(
+        await _safe_query_edit(
+            query,
             reply_markup=build_tag_selection_keyboard(tags, selected, doc_id, page=page),
         )
 
     async def _handle_tag_confirm(self, update, context, chat_id: int, data: str):
-        """Handle tag confirmation \u2014 apply selected tags to document."""
+        """Handle tag confirmation \u2014 apply selected tags to document.
+
+        The PATCH replaces the document's whole tag list, so the selection is
+        merged with any tags the keyboard does not show (the inbox tag and any
+        tag hidden from the selection UI) instead of silently stripping them.
+        """
         query = update.callback_query
         doc_id = int(data.split(":")[1])
 
-        pending = self.pending_uploads.get(chat_id)
-        selected = pending.get("selected_tags", set()) if pending else set()
-
-        if selected:
-            try:
-                await self.client.update_document(doc_id, tags=list(selected))
-                tag_names = [self.client._tags_cache.get(tid, f"#{tid}") for tid in selected]
-                await query.edit_message_text(
-                    f"Tags set: {', '.join(tag_names)}\n\nContinue setting metadata?",
-                    reply_markup=build_metadata_keyboard(doc_id),
-                )
-            except Exception:
-                logger.exception("Failed to update tags")
-                await query.edit_message_text("Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
-        else:
-            await query.edit_message_text(
-                "No tags selected.\n\nContinue setting metadata?",
-                reply_markup=build_metadata_keyboard(doc_id),
+        pending = self._pending_for(chat_id, doc_id)
+        if pending is None:
+            # Never PATCH from a stale keyboard — an empty stale selection
+            # would strip every visible tag from the document.
+            await _safe_query_edit(
+                query, "This keyboard belongs to an older upload. Send the document again to edit it."
             )
+            return
+        selected = pending.get("selected_tags", set())
+
+        try:
+            current = set(await self.client.get_document_tag_ids(doc_id))
+            visible = {tid for tid, _ in self._user_visible_tags()}
+            final = sorted((current - visible) | selected)
+
+            if set(final) != current:
+                await self.client.update_document(doc_id, tags=final)
+
+            if selected:
+                tag_names = sorted(self.client._tags_cache.get(tid, f"#{tid}") for tid in selected)
+                text = f"Tags set: {', '.join(tag_names)}\n\nContinue setting metadata?"
+            else:
+                text = "No tags selected.\n\nContinue setting metadata?"
+            await _safe_query_edit(query, text, reply_markup=build_metadata_keyboard(doc_id))
+        except Exception:
+            logger.exception("Failed to update tags")
+            await _safe_query_edit(query, "Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
 
     async def _handle_single_select(self, update, context, chat_id: int, data: str, field_name: str):
         """Handle single-select (correspondent or document type)."""
@@ -637,7 +738,8 @@ class PaperlessBot:
         doc_id = int(parts[2])
 
         if value == "skip":
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 f"{field_name.replace('_', ' ').title()} skipped.\n\nContinue setting metadata?",
                 reply_markup=build_metadata_keyboard(doc_id),
             )
@@ -653,13 +755,15 @@ class PaperlessBot:
             else:
                 name = self.client._doc_types_cache.get(item_id, f"#{item_id}")
 
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 f"{field_name.replace('_', ' ').title()} set: {name}\n\nContinue setting metadata?",
                 reply_markup=build_metadata_keyboard(doc_id),
             )
         except Exception:
             logger.exception(f"Failed to update {field_name}")
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 f"Failed to update {field_name}.",
                 reply_markup=build_metadata_keyboard(doc_id),
             )
@@ -676,7 +780,8 @@ class PaperlessBot:
         else:
             items = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
 
-        await query.edit_message_reply_markup(
+        await _safe_query_edit(
+            query,
             reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page),
         )
 
@@ -689,13 +794,14 @@ class PaperlessBot:
             await self.client.remove_inbox_tag(doc_id)
             doc = await self.client.get_document(doc_id)
             doc_url = self._document_url(doc_id)
-            await query.edit_message_text(
-                f"*{doc.title}* marked as reviewed.\n\n[Open in Paperless]({doc_url})",
-                parse_mode=ParseMode.MARKDOWN,
+            await _safe_query_edit(
+                query,
+                f'<b>{_h(doc.title)}</b> marked as reviewed.\n\n<a href="{doc_url}">Open in Paperless</a>',
+                parse_mode=ParseMode.HTML,
             )
         except Exception:
             logger.exception("Failed to mark document %d as reviewed", doc_id)
-            await query.edit_message_text(f"Failed to mark document #{doc_id} as reviewed.")
+            await _safe_query_edit(query, f"Failed to mark document #{doc_id} as reviewed.")
 
     # --- Download ---
 
@@ -727,23 +833,24 @@ class PaperlessBot:
         query = update.callback_query
         search_query = self.search_queries.get(chat_id)
         if not search_query:
-            await query.edit_message_text("Search expired. Send a new query.")
+            await _safe_query_edit(query, "Search expired. Send a new query.")
             return
 
         try:
             documents, total = await self.client.search_documents(
                 search_query, page=page, page_size=self.config.max_search_results
             )
-            text = f"*Search: {search_query}* ({total} results)\n\n"
+            text = f"<b>Search: {_h(search_query)}</b> ({total} results)\n\n"
             text += self._format_document_list(documents)
-            await query.edit_message_text(
+            await _safe_query_edit(
+                query,
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=build_search_results_keyboard(documents, page, total, self.config.max_search_results),
             )
         except Exception:
             logger.exception("Search pagination failed")
-            await query.edit_message_text("Search failed.")
+            await _safe_query_edit(query, "Search failed.")
 
     # =========================================================================
     # HELPERS
@@ -751,22 +858,22 @@ class PaperlessBot:
 
     @staticmethod
     def _format_document_list(documents: list) -> str:
-        """Format a list of documents for display."""
+        """Format a list of documents for an HTML-mode message."""
         lines = []
         for doc in documents:
-            line = f"*{doc.title}*"
+            line = f"<b>{_h(doc.title)}</b>"
             details = []
             if doc.correspondent:
-                details.append(f"Corr: {doc.correspondent}")
+                details.append(f"Corr: {_h(doc.correspondent)}")
             if doc.document_type:
-                details.append(f"Type: {doc.document_type}")
+                details.append(f"Type: {_h(doc.document_type)}")
             if doc.tags:
-                details.append(f"Tags: {', '.join(doc.tags)}")
+                details.append(f"Tags: {_h(', '.join(doc.tags))}")
             if details:
                 line += f"\n  {' | '.join(details)}"
             line += f"\n  Added: {doc.added}"
             if doc.content:
-                snippet = doc.content.replace("*", "").replace("_", "").replace("`", "")[:100]
+                snippet = _h(doc.content[:100])
                 line += f'\n  "{snippet}..."'
             lines.append(line)
         return "\n\n".join(lines)
@@ -796,7 +903,16 @@ def create_bot(config: Config) -> Application:
     """Create and configure the Telegram bot application."""
     bot = PaperlessBot(config)
 
-    app = Application.builder().token(config.telegram_bot_token).post_init(_post_init).build()
+    app = (
+        Application.builder()
+        .token(config.telegram_bot_token)
+        # Process updates concurrently so a slow upload (task polling can take
+        # minutes when the Paperless queue is busy) does not freeze every other
+        # command, message, and button press.
+        .concurrent_updates(True)
+        .post_init(_post_init)
+        .build()
+    )
 
     # Command handlers
     app.add_handler(CommandHandler("start", bot.cmd_start))
@@ -809,12 +925,17 @@ def create_bot(config: Config) -> Application:
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(bot.handle_callback))
 
+    # Only react to fresh direct messages \u2014 filters match effective_message,
+    # so without this an edited message or channel post would reach handlers
+    # that assume update.message is set and crash.
+    _new_message = filters.UpdateType.MESSAGE
+
     # Document/photo handlers \u2014 must come before text handler
-    app.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
-    app.add_handler(MessageHandler(filters.PHOTO, bot.handle_photo))
+    app.add_handler(MessageHandler(_new_message & filters.Document.ALL, bot.handle_document))
+    app.add_handler(MessageHandler(_new_message & filters.PHOTO, bot.handle_photo))
 
     # Text message handler (search or new metadata name) \u2014 must be last
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
+    app.add_handler(MessageHandler(_new_message & filters.TEXT & ~filters.COMMAND, bot.handle_text))
 
     app.add_error_handler(_error_handler)
 
