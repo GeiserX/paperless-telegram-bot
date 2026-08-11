@@ -158,16 +158,23 @@ class PaperlessBot:
         self.pending_uploads[(chat_id, doc_id)] = pending
         return pending
 
-    async def _get_or_restore_pending(self, chat_id: int, doc_id: int) -> dict:
+    async def _get_or_restore_pending(self, chat_id: int, doc_id: int) -> dict | None:
         """Return this document's metadata state, rebuilding it from Paperless if absent.
 
         A keyboard can outlive its in-memory state (bot restart, eviction);
         instead of a dead "stale keyboard" answer, re-seed the selection from
-        the document's current tags so the keyboard keeps working.
+        the document's current tags so the keyboard keeps working. Returns
+        None when the state is absent AND Paperless cannot be reached — the
+        restore does an HTTP GET, and callers must degrade gracefully rather
+        than let the exception skip their reply.
         """
         pending = self.pending_uploads.get((chat_id, doc_id))
         if pending is None:
-            tag_ids = await self.client.get_document_tag_ids(doc_id)
+            try:
+                tag_ids = await self.client.get_document_tag_ids(doc_id)
+            except Exception:
+                logger.exception("Could not restore metadata state for document %d", doc_id)
+                return None
             inbox_id = self.client._inbox_tag_id
             pending = self._remember_pending(chat_id, doc_id, {t for t in tag_ids if t != inbox_id})
         else:
@@ -430,6 +437,14 @@ class PaperlessBot:
                 tag = await self.client.create_tag(name)
                 # Auto-select the new tag on the document this prompt was for
                 upload = await self._get_or_restore_pending(chat_id, doc_id)
+                if upload is None:
+                    await update.message.reply_text(
+                        f"Tag <b>{_h(tag.name)}</b> created, but Paperless couldn't be reached to update "
+                        "the selection. Tap 'Set Tags' to retry.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=build_metadata_keyboard(doc_id),
+                    )
+                    return
                 upload["selected_tags"].add(tag.id)
                 tags = self._user_visible_tags()
                 selected = upload["selected_tags"]
@@ -595,7 +610,7 @@ class PaperlessBot:
         if item_type == "tag":
             tags = self._user_visible_tags()
             pending = await self._get_or_restore_pending(chat_id, doc_id)
-            selected = pending.get("selected_tags", set())
+            selected = pending.get("selected_tags", set()) if pending else set()
             await _safe_query_edit(
                 query,
                 "Select tags:",
@@ -629,6 +644,9 @@ class PaperlessBot:
             await self.client._ensure_cache()
             tags = self._user_visible_tags()
             pending = await self._get_or_restore_pending(chat_id, doc_id)
+            if pending is None:
+                await _safe_query_edit(query, "Couldn't reach Paperless to load this document's state. Try again.")
+                return
             selected = pending["selected_tags"]
             await _safe_query_edit(
                 query,
@@ -677,6 +695,9 @@ class PaperlessBot:
         doc_id = int(parts[3])
 
         pending = await self._get_or_restore_pending(chat_id, doc_id)
+        if pending is None:
+            await _safe_query_edit(query, "Couldn't reach Paperless to load this document's state. Try again.")
+            return
 
         selected = pending.get("selected_tags", set())
         if current_state == "o":
@@ -707,6 +728,9 @@ class PaperlessBot:
         doc_id = int(parts[2])
 
         pending = await self._get_or_restore_pending(chat_id, doc_id)
+        if pending is None:
+            await _safe_query_edit(query, "Couldn't reach Paperless to load this document's state. Try again.")
+            return
         selected = pending.get("selected_tags", set())
         tags = self._user_visible_tags()
 
@@ -729,6 +753,9 @@ class PaperlessBot:
         # so a keyboard that outlived memory confirms as a harmless no-op
         # instead of stripping tags.
         pending = await self._get_or_restore_pending(chat_id, doc_id)
+        if pending is None:
+            await _safe_query_edit(query, "Couldn't reach Paperless to load this document's state. Try again.")
+            return
         selected = pending.get("selected_tags", set())
 
         try:

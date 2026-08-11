@@ -1158,3 +1158,30 @@ class TestStateEviction:
         await bot._do_search(update, ctx, "new query", page=1)
         assert 0 not in bot.search_queries
         assert bot.search_queries[99999] == "new query"
+
+
+class TestRestoreFailure:
+    async def test_toggle_degrades_when_paperless_down(self, bot):
+        update = _make_callback_update(chat_id=100, data="tag:o:5:42")
+        bot.client.get_document_tag_ids = AsyncMock(side_effect=Exception("down"))
+        await bot.handle_callback(update, MagicMock())
+        msg = update.callback_query.edit_message_text.call_args.args[0]
+        assert "Couldn't reach Paperless" in msg
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_confirm_degrades_when_paperless_down(self, bot):
+        update = _make_callback_update(chat_id=100, data="tagok:42")
+        bot.client.get_document_tag_ids = AsyncMock(side_effect=Exception("down"))
+        bot.client.update_document = AsyncMock()
+        await bot.handle_callback(update, MagicMock())
+        bot.client.update_document.assert_not_awaited()
+        msg = update.callback_query.edit_message_text.call_args.args[0]
+        assert "Couldn't reach Paperless" in msg
+
+    async def test_new_tag_created_but_restore_fails(self, bot):
+        update = _make_update(chat_id=100)
+        bot.client.create_tag = AsyncMock(return_value=MagicMock(id=5, name="NewTag"))
+        bot.client.get_document_tag_ids = AsyncMock(side_effect=Exception("down"))
+        await bot._create_new_item(update, MagicMock(), 100, "NewTag", {"type": "tag", "doc_id": 42})
+        msg = update.message.reply_text.call_args.args[0]
+        assert "created" in msg and "couldn't be reached" in msg
