@@ -40,3 +40,7 @@ htmlcov/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Session/loop artifacts
+.omc/
+.goal-loop/
