@@ -211,9 +211,11 @@ class PaperlessBot:
     async def _process_upload(self, chat_id: int, status_msg: Message, file_bytes: bytes, filename: str):
         """Upload file to Paperless and handle the task result (success, duplicate, failure, timeout)."""
         task_id = await self.client.upload_document(file_bytes, filename)
+        logger.info("Uploaded %r to Paperless, task %s", filename, task_id)
         await _safe_edit(status_msg, f"Uploaded! Processing... (task: `{task_id[:8]}`)", parse_mode=ParseMode.MARKDOWN)
 
         result = await self.client.wait_for_task(task_id, timeout=self.config.upload_task_timeout)
+        logger.info("Task %s finished with status %r (doc_id=%s)", task_id, result.status, result.doc_id)
 
         if result.status == "success" and result.doc_id:
             document = await self.client.get_document(result.doc_id)
@@ -265,6 +267,9 @@ class PaperlessBot:
 
         chat_id = update.effective_chat.id
         doc = update.message.document
+        logger.info(
+            "Received document %r (%s bytes) from user %s", doc.file_name, doc.file_size, update.effective_user.id
+        )
         status_msg = await update.message.reply_text(
             f"Uploading `{doc.file_name}` to Paperless-NGX...", parse_mode=ParseMode.MARKDOWN
         )
@@ -284,6 +289,7 @@ class PaperlessBot:
 
         chat_id = update.effective_chat.id
         photo = update.message.photo[-1]  # Highest resolution
+        logger.info("Received photo (%s bytes) from user %s", photo.file_size, update.effective_user.id)
         status_msg = await update.message.reply_text("Uploading photo to Paperless-NGX...")
 
         try:
@@ -774,6 +780,18 @@ async def _post_init(application: Application) -> None:
     logger.info("Bot commands registered with Telegram")
 
 
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log unhandled errors instead of PTB's noisy default traceback dump.
+
+    Transient polling network errors are expected (PTB retries them itself),
+    so they are logged as warnings rather than full-traceback errors.
+    """
+    if isinstance(context.error, NetworkError | TimedOut):
+        logger.warning("Telegram network error (will retry): %s", context.error)
+        return
+    logger.error("Unhandled error while processing update %s", update, exc_info=context.error)
+
+
 def create_bot(config: Config) -> Application:
     """Create and configure the Telegram bot application."""
     bot = PaperlessBot(config)
@@ -797,6 +815,8 @@ def create_bot(config: Config) -> Application:
 
     # Text message handler (search or new metadata name) \u2014 must be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
+
+    app.add_error_handler(_error_handler)
 
     logger.info("Telegram bot configured")
     return app
