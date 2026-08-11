@@ -131,7 +131,7 @@ class TestHealthEndpoint:
 
         app = create_health_app(_health_config())
         with respx.mock:
-            respx.get("http://localhost:8000/api/statistics/").mock(return_value=httpx.Response(200, json={}))
+            respx.get("http://localhost:8000/api/documents/").mock(return_value=httpx.Response(200, json={}))
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/health")
@@ -146,7 +146,7 @@ class TestHealthEndpoint:
 
         app = create_health_app(_health_config())
         with respx.mock:
-            respx.get("http://localhost:8000/api/statistics/").mock(return_value=httpx.Response(401))
+            respx.get("http://localhost:8000/api/documents/").mock(return_value=httpx.Response(401))
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/health")
@@ -171,7 +171,7 @@ class TestValidatePaperlessConnection:
             instance = mock_cls.return_value
             instance.probe = AsyncMock(side_effect=Exception("boom"))
             instance.close = AsyncMock()
-            assert validate_paperless_connection(_health_config()) is False
+            assert validate_paperless_connection(_health_config(), attempts=1) is False
 
     def test_cmd_run_exits_when_probe_fails(self):
         with (

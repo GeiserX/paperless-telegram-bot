@@ -45,7 +45,7 @@ docker run -d \
   -e PAPERLESS_URL=http://your-paperless:8000 \
   -e PAPERLESS_TOKEN=your_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:latest
+  drumsergio/paperless-telegram-bot:v0.7.0
 ```
 
 ### Docker Compose
@@ -53,7 +53,7 @@ docker run -d \
 ```yaml
 services:
   paperless-telegram-bot:
-    image: drumsergio/paperless-telegram-bot:latest
+    image: drumsergio/paperless-telegram-bot:v0.7.0
     container_name: paperless-telegram-bot
     restart: unless-stopped
     environment:

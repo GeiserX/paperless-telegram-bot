@@ -888,12 +888,17 @@ class TestCallbackHandler:
         ctx.bot.send_document.assert_awaited_once()
 
     async def test_dl_callback_too_large(self, bot):
+        from paperless_bot.api.client import DocumentTooLargeError
+
         update = _make_callback_update(chat_id=100, data="dl:42")
         ctx = MagicMock()
         ctx.bot.send_message = AsyncMock()
-        big_data = b"x" * (TELEGRAM_FILE_LIMIT + 1)
-        bot.client.download_document = AsyncMock(return_value=(big_data, "huge.pdf"))
+        bot.client.download_document = AsyncMock(
+            side_effect=DocumentTooLargeError(TELEGRAM_FILE_LIMIT + 1, TELEGRAM_FILE_LIMIT)
+        )
         await bot.handle_callback(update, ctx)
+        # The size cap is enforced by the client (before buffering the file)
+        assert bot.client.download_document.call_args.kwargs["max_bytes"] == TELEGRAM_FILE_LIMIT
         ctx.bot.send_message.assert_awaited_once()
         assert "too large" in ctx.bot.send_message.call_args.kwargs["text"].lower()
 

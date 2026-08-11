@@ -8,6 +8,7 @@ import asyncio
 import logging
 import sys
 import threading
+import time
 
 import httpx
 import uvicorn
@@ -38,7 +39,8 @@ def create_health_app(config: Config) -> FastAPI:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(
-                    f"{config.paperless_url.rstrip('/')}/api/statistics/",
+                    f"{config.paperless_url.rstrip('/')}/api/documents/",
+                    params={"page_size": 1},
                     headers={"Authorization": f"Token {config.paperless_token}"},
                 )
                 resp.raise_for_status()
@@ -63,8 +65,13 @@ def run_health_server(config: Config):
     server.run()
 
 
-def validate_paperless_connection(config: Config) -> bool:
-    """Probe Paperless once at startup so misconfiguration fails fast and loud."""
+def validate_paperless_connection(config: Config, attempts: int = 3, retry_delay: float = 5.0) -> bool:
+    """Probe Paperless at startup so misconfiguration fails fast and loud.
+
+    Retries a few times before giving up, so a Paperless that is a moment
+    behind the bot (e.g. both restarting after a deploy) does not force an
+    immediate container exit.
+    """
 
     async def _probe():
         client = PaperlessClient(config.paperless_url, config.paperless_token)
@@ -73,10 +80,22 @@ def validate_paperless_connection(config: Config) -> bool:
         finally:
             await client.close()
 
-    try:
-        info = asyncio.run(_probe())
-    except Exception as exc:
-        logger.error("Cannot talk to Paperless-NGX at %s: %s", config.paperless_url, exc)
+    info = None
+    for attempt in range(1, attempts + 1):
+        try:
+            info = asyncio.run(_probe())
+            break
+        except Exception as exc:
+            logger.error(
+                "Cannot talk to Paperless-NGX at %s (attempt %d/%d): %s",
+                config.paperless_url,
+                attempt,
+                attempts,
+                exc,
+            )
+            if attempt < attempts:
+                time.sleep(retry_delay)
+    if info is None:
         logger.error("Check PAPERLESS_URL and PAPERLESS_TOKEN before restarting.")
         return False
 

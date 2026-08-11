@@ -25,6 +25,16 @@ def _mock_api():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _instant_poll_sleep(monkeypatch):
+    """wait_for_task sleeps 2s per poll; make that instant for the suite."""
+
+    async def _nosleep(_seconds):
+        return None
+
+    monkeypatch.setattr("paperless_bot.api.client.asyncio.sleep", _nosleep)
+
+
 def _mock_cache_endpoints(tags=None, correspondents=None, doc_types=None, inbox_tag=False):
     """Set up mock responses for cache refresh endpoints."""
     if tags is None:
@@ -979,7 +989,7 @@ class TestPollAbort:
 class TestProbe:
     @respx.mock
     async def test_probe_returns_versions(self, client):
-        respx.get("http://localhost:8000/api/statistics/").mock(
+        respx.get("http://localhost:8000/api/documents/").mock(
             return_value=Response(200, json={}, headers={"x-version": "3.0.5", "x-api-version": "10"})
         )
         info = await client.probe()
@@ -987,7 +997,7 @@ class TestProbe:
 
     @respx.mock
     async def test_probe_raises_on_bad_token(self, client):
-        respx.get("http://localhost:8000/api/statistics/").mock(
+        respx.get("http://localhost:8000/api/documents/").mock(
             return_value=Response(401, json={"detail": "Invalid token."})
         )
         import httpx
@@ -1010,3 +1020,34 @@ class TestCacheLock:
         # Exactly one refresh happened: one GET to /api/tags/
         tag_calls = [c for c in respx.calls if "/api/tags/" in str(c.request.url)]
         assert len(tag_calls) == 1
+
+
+class TestDownloadSizeCap:
+    @respx.mock
+    async def test_rejects_from_content_length(self, client):
+        respx.get("http://localhost:8000/api/documents/1/download/").mock(
+            return_value=Response(200, content=b"x" * 10, headers={"content-length": "10"})
+        )
+        from paperless_bot.api.client import DocumentTooLargeError
+
+        with pytest.raises(DocumentTooLargeError):
+            await client.download_document(1, max_bytes=5)
+
+    @respx.mock
+    async def test_rejects_while_streaming_without_header(self, client):
+        from paperless_bot.api.client import DocumentTooLargeError
+
+        respx.get("http://localhost:8000/api/documents/1/download/").mock(
+            return_value=Response(200, content=b"x" * 100)
+        )
+        with pytest.raises(DocumentTooLargeError):
+            await client.download_document(1, max_bytes=50)
+
+    @respx.mock
+    async def test_small_file_passes(self, client):
+        respx.get("http://localhost:8000/api/documents/1/download/").mock(
+            return_value=Response(200, content=b"ok", headers={"content-disposition": 'attachment; filename="a.pdf"'})
+        )
+        data, filename = await client.download_document(1, max_bytes=100)
+        assert data == b"ok"
+        assert filename == "a.pdf"

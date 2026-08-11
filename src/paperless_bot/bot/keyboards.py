@@ -11,6 +11,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 if TYPE_CHECKING:
     from paperless_bot.api.client import Document
 
+# Items per page in paginated selection keyboards
+TAGS_PAGE_SIZE = 8
+
 
 def build_metadata_keyboard(doc_id: int) -> InlineKeyboardMarkup:
     """Build post-upload metadata assignment keyboard."""
@@ -33,7 +36,7 @@ def build_tag_selection_keyboard(
     selected_ids: set[int],
     doc_id: int,
     page: int = 0,
-    page_size: int = 8,
+    page_size: int = TAGS_PAGE_SIZE,
 ) -> InlineKeyboardMarkup:
     """Build paginated tag selection keyboard with toggle checkmarks."""
     start = page * page_size
@@ -74,7 +77,7 @@ def build_single_select_keyboard(
     callback_prefix: str,
     doc_id: int,
     page: int = 0,
-    page_size: int = 8,
+    page_size: int = TAGS_PAGE_SIZE,
 ) -> InlineKeyboardMarkup:
     """Build paginated single-select keyboard for correspondents or document types."""
     start = page * page_size

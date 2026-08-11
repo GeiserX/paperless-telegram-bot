@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 
 _DUPLICATE_DOC_ID_RE = re.compile(r"#(\d+)")
 
+
+class DocumentTooLargeError(Exception):
+    """Raised when a document exceeds the allowed download size."""
+
+    def __init__(self, size: int | None, limit: int):
+        self.size = size
+        self.limit = limit
+        super().__init__(f"document exceeds download limit ({size or 'unknown'} > {limit} bytes)")
+
+
 # Seconds before the tags/correspondents/document-types cache is considered
 # stale and refreshed (items created in the Paperless web UI show up after
 # at most this long instead of only after a bot restart).
@@ -329,10 +339,30 @@ class PaperlessClient:
             return int(match.group(1))
         return None
 
-    async def download_document(self, doc_id: int) -> tuple[bytes, str]:
-        """Download a document. Returns (file_bytes, filename)."""
-        resp = await self._client.get(f"/api/documents/{doc_id}/download/")
-        _raise_for_status_with_body(resp)
+    async def download_document(self, doc_id: int, max_bytes: int | None = None) -> tuple[bytes, str]:
+        """Download a document. Returns (file_bytes, filename).
+
+        With max_bytes set, oversized files are rejected from the
+        Content-Length header (or while streaming, if the header is absent)
+        instead of being buffered whole into memory first.
+        """
+        async with self._client.stream("GET", f"/api/documents/{doc_id}/download/") as resp:
+            if resp.status_code >= 400:
+                await resp.aread()
+                _raise_for_status_with_body(resp)
+
+            content_length = resp.headers.get("content-length")
+            if max_bytes and content_length and int(content_length) > max_bytes:
+                raise DocumentTooLargeError(int(content_length), max_bytes)
+
+            chunks: list[bytes] = []
+            received = 0
+            async for chunk in resp.aiter_bytes():
+                received += len(chunk)
+                if max_bytes and received > max_bytes:
+                    raise DocumentTooLargeError(None, max_bytes)
+                chunks.append(chunk)
+
         cd = resp.headers.get("content-disposition", "")
         filename = f"document_{doc_id}.pdf"
         if "filename=" in cd:
@@ -340,7 +370,7 @@ class PaperlessClient:
             parts = cd.split("filename=")
             if len(parts) > 1:
                 filename = parts[1].split(";")[0].strip('"').strip("'")
-        return resp.content, filename
+        return b"".join(chunks), filename
 
     async def update_document(self, doc_id: int, **fields) -> Document:
         """Partial update of a document (tags, correspondent, document_type, title, etc.)."""
@@ -438,9 +468,11 @@ class PaperlessClient:
         logged so API-shape changes (like the 2.x -> 3.x tasks change) are
         visible in startup logs. Deliberately NOT pinning an Accept version:
         older servers 406 unsupported versions, and the client already parses
-        both known task shapes.
+        both known task shapes. Probes the documents endpoint — the one
+        permission the bot cannot work without — rather than statistics,
+        which a least-privilege token may not be allowed to read.
         """
-        resp = await self._client.get("/api/statistics/")
+        resp = await self._client.get("/api/documents/", params={"page_size": 1})
         _raise_for_status_with_body(resp)
         return {
             "server_version": resp.headers.get("x-version", "unknown"),

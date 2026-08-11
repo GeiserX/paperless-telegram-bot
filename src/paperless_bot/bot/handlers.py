@@ -20,8 +20,9 @@ from telegram.ext import (
     filters,
 )
 
-from paperless_bot.api.client import PaperlessClient
+from paperless_bot.api.client import DocumentTooLargeError, PaperlessClient
 from paperless_bot.bot.keyboards import (
+    TAGS_PAGE_SIZE,
     build_document_list_keyboard,
     build_metadata_keyboard,
     build_search_results_keyboard,
@@ -718,7 +719,7 @@ class PaperlessBot:
         tag_ids = [t[0] for t in tags]
         try:
             idx = tag_ids.index(tag_id)
-            page = idx // 8
+            page = idx // TAGS_PAGE_SIZE
         except ValueError:
             page = 0
 
@@ -865,19 +866,18 @@ class PaperlessBot:
     async def _handle_download(self, update, context, chat_id: int, doc_id: int):
         """Download a document and send it to the user."""
         try:
-            file_bytes, filename = await self.client.download_document(doc_id)
-
-            if len(file_bytes) > TELEGRAM_FILE_LIMIT:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"File too large for Telegram ({len(file_bytes) / 1024 / 1024:.1f}MB > 50MB limit).",
-                )
-                return
+            file_bytes, filename = await self.client.download_document(doc_id, max_bytes=TELEGRAM_FILE_LIMIT)
 
             await context.bot.send_document(
                 chat_id=chat_id,
                 document=file_bytes,
                 filename=filename,
+            )
+        except DocumentTooLargeError as exc:
+            size = f"{exc.size / 1024 / 1024:.1f}MB" if exc.size else "over 50MB"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"File too large for Telegram ({size}, limit 50MB).",
             )
         except Exception:
             logger.exception(f"Download failed for document {doc_id}")
