@@ -11,6 +11,7 @@ from paperless_bot.api.client import Document, TaskResult
 from paperless_bot.bot.handlers import (
     TELEGRAM_FILE_LIMIT,
     PaperlessBot,
+    _error_handler,
     _post_init,
     _safe_edit,
     create_bot,
@@ -926,3 +927,32 @@ class TestCreateBot:
         app.bot.set_my_commands = AsyncMock()
         await _post_init(app)
         app.bot.set_my_commands.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _error_handler
+# ---------------------------------------------------------------------------
+
+
+class TestErrorHandler:
+    async def test_network_error_logged_as_warning(self, caplog):
+        context = MagicMock()
+        context.error = NetworkError("Server disconnected")
+        with caplog.at_level("WARNING", logger="paperless_bot.bot.handlers"):
+            await _error_handler(None, context)
+        assert "will retry" in caplog.text
+        assert "Traceback" not in caplog.text
+
+    async def test_timeout_error_logged_as_warning(self, caplog):
+        context = MagicMock()
+        context.error = TimedOut("timed out")
+        with caplog.at_level("WARNING", logger="paperless_bot.bot.handlers"):
+            await _error_handler(None, context)
+        assert "will retry" in caplog.text
+
+    async def test_other_error_logged_as_error(self, caplog):
+        context = MagicMock()
+        context.error = ValueError("boom")
+        with caplog.at_level("ERROR", logger="paperless_bot.bot.handlers"):
+            await _error_handler("some-update", context)
+        assert "Unhandled error" in caplog.text

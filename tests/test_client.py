@@ -865,3 +865,25 @@ class TestParseDocument:
         doc = client._parse_document(_make_doc_response())
         assert doc.created == "2025-01-15"
         assert doc.added == "2025-01-15"
+
+
+# ---------------------------------------------------------------------------
+# _extract_task_doc_id
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTaskDocId:
+    def test_v2_related_document(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document": "42"}) == 42
+
+    def test_v3_result_data(self):
+        assert PaperlessClient._extract_task_doc_id({"result_data": {"document_id": 7}}) == 7
+
+    def test_v3_related_ids(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document_ids": [9, 10]}) == 9
+
+    def test_missing_everywhere(self):
+        assert PaperlessClient._extract_task_doc_id({}) is None
+
+    def test_unparseable_id(self):
+        assert PaperlessClient._extract_task_doc_id({"related_document": "not-a-number"}) is None
