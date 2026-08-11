@@ -45,7 +45,7 @@ docker run -d \
   -e PAPERLESS_URL=http://your-paperless:8000 \
   -e PAPERLESS_TOKEN=your_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:latest
+  drumsergio/paperless-telegram-bot:v0.7.0
 ```
 
 ### Docker Compose
@@ -53,7 +53,7 @@ docker run -d \
 ```yaml
 services:
   paperless-telegram-bot:
-    image: drumsergio/paperless-telegram-bot:latest
+    image: drumsergio/paperless-telegram-bot:v0.7.0
     container_name: paperless-telegram-bot
     restart: unless-stopped
     environment:
@@ -74,7 +74,7 @@ services:
 git clone https://github.com/GeiserX/paperless-telegram-bot.git
 cd paperless-telegram-bot
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 cp .env.example .env   # Edit with your values
 python -m paperless_bot run
 ```
@@ -88,13 +88,18 @@ All configuration is done through environment variables. Copy `.env.example` to 
 | `TELEGRAM_BOT_TOKEN` | Yes | -- | Telegram Bot API token from [@BotFather](https://t.me/BotFather) |
 | `PAPERLESS_URL` | Yes | -- | Paperless-NGX instance URL (e.g. `http://localhost:8000`) |
 | `PAPERLESS_TOKEN` | Yes | -- | Paperless-NGX API authentication token |
-| `TELEGRAM_ALLOWED_USERS` | No | *(open)* | Comma-separated Telegram user IDs allowed to use the bot |
+| `TELEGRAM_ALLOWED_USERS` | Yes* | -- | Comma-separated Telegram user IDs allowed to use the bot. *Required unless `ALLOW_OPEN_ACCESS=true`; an empty allowlist refuses to start |
+| `ALLOW_OPEN_ACCESS` | No | `false` | Explicit opt-in to run **without** an allowlist (open to any Telegram user) |
 | `PAPERLESS_PUBLIC_URL` | No | `PAPERLESS_URL` | User-facing URL for clickable document links |
 | `MAX_SEARCH_RESULTS` | No | `10` | Number of results per page in search, recent, and inbox |
+| `UPLOAD_TASK_TIMEOUT` | No | `300` | Seconds to wait for Paperless to finish processing an upload (increase if slow tasks such as mail checks block the consume queue) |
 | `REMOVE_INBOX_ON_DONE` | No | `true` | Remove inbox tag when clicking "Done" in metadata flow |
 | `INBOX_TAG` | No | *(auto-detect)* | Explicit inbox tag name. If unset, auto-detects via Paperless API |
+| `DROP_PENDING_UPDATES` | No | `false` | Discard Telegram updates that arrived while the bot was down instead of processing them on startup |
 | `LOG_LEVEL` | No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `HEALTH_PORT` | No | `8080` | Port for the `/health` HTTP endpoint |
+| `HEALTH_PORT` | No | `8080` | Port for the `/health` HTTP endpoint (returns `503 degraded` when Paperless is unreachable) |
+
+Compatible with Paperless-NGX **2.x and 3.x** (both task-API response formats are handled).
 
 ## Commands
 
@@ -133,7 +138,7 @@ paperless-telegram-bot
 
 ## Security
 
-- **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. When empty, the bot accepts messages from anyone (not recommended for production).
+- **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. An empty allowlist refuses to start unless `ALLOW_OPEN_ACCESS=true` is set explicitly (running open is not recommended).
 - **Non-root container** -- The Docker image runs as an unprivileged `paperlessbot` user (UID 1000).
 - **No secrets in code** -- All credentials are loaded from environment variables. Never commit `.env` files.
 - **API token scoping** -- The bot uses a single Paperless-NGX API token. Create a dedicated user/token with appropriate permissions.

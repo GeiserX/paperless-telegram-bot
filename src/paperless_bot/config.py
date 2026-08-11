@@ -54,6 +54,16 @@ class Config:
         # If not set, auto-detects the tag with is_inbox_tag=true from Paperless API.
         self.inbox_tag = os.getenv("INBOX_TAG", "").strip() or None
 
+        # Process updates that arrived while the bot was down (default) instead
+        # of discarding the backlog on startup. For a document-intake bot,
+        # dropping the backlog silently loses uploads sent during a redeploy.
+        self.drop_pending_updates = os.getenv("DROP_PENDING_UPDATES", "false").lower() in ("true", "1", "yes")
+
+        # Running without an allowlist means ANY Telegram user who finds the
+        # bot can upload into, search, and download from your archive.
+        # That now requires an explicit opt-in instead of only a log warning.
+        self.allow_open_access = os.getenv("ALLOW_OPEN_ACCESS", "false").lower() in ("true", "1", "yes")
+
         # =====================================================================
         # LOGGING
         # =====================================================================
@@ -70,8 +80,14 @@ class Config:
         logger.info("Configuration loaded successfully")
         if self.telegram_allowed_users:
             logger.info(f"Bot restricted to {len(self.telegram_allowed_users)} allowed user(s)")
+        elif self.allow_open_access:
+            logger.warning("ALLOW_OPEN_ACCESS=true \u2014 bot is open to ANY Telegram user!")
         else:
-            logger.warning("TELEGRAM_ALLOWED_USERS is empty \u2014 bot is open to anyone!")
+            raise ValueError(
+                "TELEGRAM_ALLOWED_USERS is empty. Set it to your Telegram user ID(s) "
+                "(send /start to @userinfobot to find yours), or set ALLOW_OPEN_ACCESS=true "
+                "to deliberately run the bot open to anyone."
+            )
 
     def _get_required_env(self, key: str) -> str:
         """Get a required environment variable."""
