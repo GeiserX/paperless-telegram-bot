@@ -104,6 +104,7 @@ class PaperlessClient:
         self._inbox_tag_id: int | None = None
         self._inbox_tag_name_override = inbox_tag_name
         self._cache_loaded_at: float = 0.0
+        self._cache_lock = asyncio.Lock()
 
     async def close(self):
         await self._client.aclose()
@@ -151,18 +152,29 @@ class PaperlessClient:
         self._cache_loaded_at = time.monotonic()
 
     async def _ensure_cache(self):
-        """Populate the caches if empty; refresh them when older than CACHE_TTL."""
-        fresh = self._tags_cache and time.monotonic() - self._cache_loaded_at <= CACHE_TTL
-        if fresh:
+        """Populate the caches if empty; refresh them when older than CACHE_TTL.
+
+        Updates are processed concurrently, so the refresh is serialized behind
+        a lock and re-checked after acquiring it — otherwise several handlers
+        could all kick off a full refresh at once.
+        """
+
+        def _fresh() -> bool:
+            return bool(self._tags_cache) and time.monotonic() - self._cache_loaded_at <= CACHE_TTL
+
+        if _fresh():
             return
-        try:
-            await self.refresh_cache()
-        except Exception:
-            if not self._tags_cache:
-                raise
-            # A populated-but-stale cache beats failing the user's request
-            logger.warning("Cache refresh failed; serving stale metadata cache", exc_info=True)
-            self._cache_loaded_at = time.monotonic()
+        async with self._cache_lock:
+            if _fresh():
+                return
+            try:
+                await self.refresh_cache()
+            except Exception:
+                if not self._tags_cache:
+                    raise
+                # A populated-but-stale cache beats failing the user's request
+                logger.warning("Cache refresh failed; serving stale metadata cache", exc_info=True)
+                self._cache_loaded_at = time.monotonic()
 
     # --- Documents ---
 
