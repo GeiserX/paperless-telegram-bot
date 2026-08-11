@@ -465,8 +465,7 @@ class TestProcessUpload:
 
         await bot._process_upload(100, status_msg, b"data", "test.pdf")
 
-        assert 100 in bot.pending_uploads
-        assert bot.pending_uploads[100]["doc_id"] == 42
+        assert (100, 42) in bot.pending_uploads
 
     async def test_duplicate_with_id(self, bot):
         status_msg = MagicMock()
@@ -572,15 +571,15 @@ class TestHandleText:
 class TestCreateNewItem:
     async def test_create_tag(self, bot):
         update = _make_update(chat_id=100)
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client.create_tag = AsyncMock(return_value=MagicMock(id=5, name="NewTag"))
         bot.client._tags_cache = {1: "existing"}
         bot.client._inbox_tag_id = None
 
         await bot._create_new_item(update, MagicMock(), 100, "NewTag", {"type": "tag", "doc_id": 42})
         bot.client.create_tag.assert_awaited_once_with("NewTag")
-        # Tag should be auto-selected
-        assert 5 in bot.pending_uploads[100]["selected_tags"]
+        # Tag should be auto-selected on the document the prompt was for
+        assert 5 in bot.pending_uploads[(100, 42)]["selected_tags"]
 
     async def test_create_correspondent(self, bot):
         update = _make_update(chat_id=100)
@@ -669,6 +668,7 @@ class TestCallbackHandler:
         bot.client._ensure_cache = AsyncMock()
         bot.client._tags_cache = {1: "tag1", 2: "tag2"}
         bot.client._inbox_tag_id = None
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
         await bot.handle_callback(update, MagicMock())
         update.callback_query.edit_message_text.assert_awaited_once()
 
@@ -688,16 +688,16 @@ class TestCallbackHandler:
 
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
-        bot.pending_uploads[100] = {"doc_id": 42}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client.remove_inbox_tag = AsyncMock()
         await bot.handle_callback(update, MagicMock())
-        assert 100 not in bot.pending_uploads
+        assert (100, 42) not in bot.pending_uploads
         bot.client.remove_inbox_tag.assert_awaited_once_with(42)
 
     async def test_meta_done_remove_inbox_disabled(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
         bot.config.remove_inbox_on_done = False
-        bot.pending_uploads[100] = {"doc_id": 42}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client.remove_inbox_tag = AsyncMock()
         await bot.handle_callback(update, MagicMock())
         bot.client.remove_inbox_tag.assert_not_awaited()
@@ -711,38 +711,42 @@ class TestCallbackHandler:
 
     async def test_tag_toggle_check(self, bot):
         update = _make_callback_update(chat_id=100, data="tag:o:5:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client._tags_cache = {5: "invoice"}
         bot.client._inbox_tag_id = None
         await bot.handle_callback(update, MagicMock())
-        assert 5 in bot.pending_uploads[100]["selected_tags"]
+        assert 5 in bot.pending_uploads[(100, 42)]["selected_tags"]
 
     async def test_tag_toggle_uncheck(self, bot):
         update = _make_callback_update(chat_id=100, data="tag:x:5:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {5}}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": {5}, "ts": time.monotonic()}
         bot.client._tags_cache = {5: "invoice"}
         bot.client._inbox_tag_id = None
         await bot.handle_callback(update, MagicMock())
-        assert 5 not in bot.pending_uploads[100]["selected_tags"]
+        assert 5 not in bot.pending_uploads[(100, 42)]["selected_tags"]
 
     async def test_tag_toggle_unknown_tag_id(self, bot):
         """Tag ID not in visible tags triggers ValueError branch."""
         update = _make_callback_update(chat_id=100, data="tag:o:999:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client._tags_cache = {5: "invoice"}  # 999 not in cache
         bot.client._inbox_tag_id = None
         await bot.handle_callback(update, MagicMock())
         # Should fall back to page 0
-        assert 999 in bot.pending_uploads[100]["selected_tags"]
+        assert 999 in bot.pending_uploads[(100, 42)]["selected_tags"]
 
-    async def test_tag_toggle_no_pending(self, bot):
+    async def test_tag_toggle_no_pending_restores_from_api(self, bot):
         update = _make_callback_update(chat_id=100, data="tag:o:5:42")
-        # No pending uploads - should return without error
+        bot.client._tags_cache = {5: "invoice"}
+        bot.client._inbox_tag_id = None
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
         await bot.handle_callback(update, MagicMock())
+        # State restored from Paperless, toggle applied
+        assert 5 in bot.pending_uploads[(100, 42)]["selected_tags"]
 
     async def test_tag_page_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="tagp:1:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client._tags_cache = {i: f"tag{i}" for i in range(20)}
         bot.client._inbox_tag_id = None
         await bot.handle_callback(update, MagicMock())
@@ -750,7 +754,7 @@ class TestCallbackHandler:
 
     async def test_tagok_with_tags(self, bot):
         update = _make_callback_update(chat_id=100, data="tagok:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {1, 2}}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": {1, 2}, "ts": time.monotonic()}
         bot.client._tags_cache = {1: "tag1", 2: "tag2"}
         bot.client._inbox_tag_id = None
         bot.client.get_document_tag_ids = AsyncMock(return_value=[])
@@ -760,7 +764,7 @@ class TestCallbackHandler:
 
     async def test_tagok_no_tags(self, bot):
         update = _make_callback_update(chat_id=100, data="tagok:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         bot.client._tags_cache = {}
         bot.client._inbox_tag_id = None
         bot.client.get_document_tag_ids = AsyncMock(return_value=[])
@@ -772,8 +776,9 @@ class TestCallbackHandler:
 
     async def test_tagok_error(self, bot):
         update = _make_callback_update(chat_id=100, data="tagok:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {1}}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": {1}, "ts": time.monotonic()}
         bot.client._tags_cache = {1: "tag1"}
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
         bot.client.update_document = AsyncMock(side_effect=Exception("fail"))
         await bot.handle_callback(update, MagicMock())
         call_text = update.callback_query.edit_message_text.call_args.args[0]
@@ -840,7 +845,7 @@ class TestCallbackHandler:
         bot.client._ensure_cache = AsyncMock()
         bot.client._tags_cache = {1: "tag1"}
         bot.client._inbox_tag_id = None
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": set()}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
         await bot.handle_callback(update, MagicMock())
         assert 100 not in bot.pending_creates
 
@@ -1057,27 +1062,34 @@ class TestOversizeAndFilename:
 
 
 class TestStaleKeyboards:
-    async def test_tagok_stale_keyboard_never_patches(self, bot):
+    async def test_tagok_restored_state_confirms_as_noop(self, bot):
+        """A keyboard that outlived memory restores from Paperless and never strips tags."""
         update = _make_callback_update(chat_id=100, data="tagok:42")
-        # A newer upload replaced the pending entry
-        bot.pending_uploads[100] = {"doc_id": 99, "selected_tags": set()}
+        # Another document's state exists; nothing for (100, 42)
+        bot.pending_uploads[(100, 99)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client._tags_cache = {2: "old", 9: "Inbox"}
+        bot.client._inbox_tag_id = 9
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[2, 9])
         bot.client.update_document = AsyncMock()
-        bot.client.get_document_tag_ids = AsyncMock()
         await bot.handle_callback(update, MagicMock())
+        # Selection was seeded from current tags, so confirm is a no-op PATCH-wise
         bot.client.update_document.assert_not_awaited()
-        bot.client.get_document_tag_ids.assert_not_awaited()
-        call_text = update.callback_query.edit_message_text.call_args.args[0]
-        assert "older upload" in call_text
+        # And doc 99's state was untouched
+        assert bot.pending_uploads[(100, 99)]["selected_tags"] == set()
 
-    async def test_tag_toggle_stale_keyboard_ignored(self, bot):
+    async def test_tag_toggle_two_documents_stay_independent(self, bot):
         update = _make_callback_update(chat_id=100, data="tag:o:5:42")
-        bot.pending_uploads[100] = {"doc_id": 99, "selected_tags": set()}
+        bot.pending_uploads[(100, 99)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client._tags_cache = {5: "invoice"}
+        bot.client._inbox_tag_id = None
+        bot.client.get_document_tag_ids = AsyncMock(return_value=[])
         await bot.handle_callback(update, MagicMock())
-        assert bot.pending_uploads[100]["selected_tags"] == set()
+        assert 5 in bot.pending_uploads[(100, 42)]["selected_tags"]
+        assert bot.pending_uploads[(100, 99)]["selected_tags"] == set()
 
     async def test_tagok_preserves_inbox_tag(self, bot):
         update = _make_callback_update(chat_id=100, data="tagok:42")
-        bot.pending_uploads[100] = {"doc_id": 42, "selected_tags": {1}}
+        bot.pending_uploads[(100, 42)] = {"selected_tags": {1}, "ts": time.monotonic()}
         bot.client._tags_cache = {1: "tag1", 2: "old", 9: "Inbox"}
         bot.client._inbox_tag_id = 9
         # Document currently has the inbox tag (9) and an unchecked visible tag (2)
@@ -1089,8 +1101,8 @@ class TestStaleKeyboards:
 
 
 class TestPendingCreateTTL:
-    async def test_expired_pending_create_falls_through_to_search(self, bot):
-        update = _make_update(chat_id=100, text="some search")
+    async def test_expired_pending_create_notifies_instead_of_searching(self, bot):
+        update = _make_update(chat_id=100, text="Invoices")
         bot.pending_creates[100] = {"type": "tag", "doc_id": 42, "ts": time.monotonic() - 3600}
         with (
             patch.object(bot, "_create_new_item", new_callable=AsyncMock) as mock_create,
@@ -1098,7 +1110,10 @@ class TestPendingCreateTTL:
         ):
             await bot.handle_text(update, MagicMock())
             mock_create.assert_not_awaited()
-            mock_search.assert_awaited_once()
+            mock_search.assert_not_awaited()
+        msg = update.message.reply_text.call_args.args[0]
+        assert "expired" in msg
+        assert 100 not in bot.pending_creates
 
     async def test_upload_clears_pending_create(self, bot):
         update = _make_update(chat_id=100)
@@ -1116,3 +1131,30 @@ class TestPendingCreateTTL:
         with patch.object(bot, "_process_upload", new_callable=AsyncMock):
             await bot.handle_document(update, ctx)
         assert 100 not in bot.pending_creates
+
+
+class TestStateEviction:
+    def test_pending_uploads_evict_oldest(self, bot):
+        from paperless_bot.bot.handlers import MAX_PENDING_ENTRIES
+
+        for i in range(MAX_PENDING_ENTRIES):
+            bot.pending_uploads[(1, i)] = {"selected_tags": set(), "ts": float(i)}
+        bot._remember_pending(1, 9999, {7})
+        assert (1, 0) not in bot.pending_uploads  # oldest evicted
+        assert (1, 9999) in bot.pending_uploads
+        assert len(bot.pending_uploads) == MAX_PENDING_ENTRIES
+
+    async def test_search_queries_evict_oldest(self, bot):
+        from paperless_bot.bot.handlers import MAX_SEARCH_ENTRIES
+
+        for i in range(MAX_SEARCH_ENTRIES):
+            bot.search_queries[i] = f"q{i}"
+        update = _make_update(chat_id=99999, text="new query")
+        ctx = MagicMock()
+        status_msg = MagicMock()
+        status_msg.edit_text = AsyncMock()
+        ctx.bot.send_message = AsyncMock(return_value=status_msg)
+        bot.client.search_documents = AsyncMock(return_value=([], 0))
+        await bot._do_search(update, ctx, "new query", page=1)
+        assert 0 not in bot.search_queries
+        assert bot.search_queries[99999] == "new query"

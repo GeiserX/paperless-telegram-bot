@@ -995,3 +995,18 @@ class TestProbe:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await client.probe()
         assert "Invalid token" in str(exc_info.value)
+
+
+class TestCacheLock:
+    @respx.mock
+    async def test_second_waiter_skips_refresh_after_lock(self, client):
+        """A handler that waited on the lock must not refresh again."""
+        import asyncio
+
+        _mock_cache_endpoints()
+        r1 = client._ensure_cache()
+        r2 = client._ensure_cache()
+        await asyncio.gather(r1, r2)
+        # Exactly one refresh happened: one GET to /api/tags/
+        tag_calls = [c for c in respx.calls if "/api/tags/" in str(c.request.url)]
+        assert len(tag_calls) == 1

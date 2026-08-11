@@ -39,6 +39,12 @@ TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024
 # Seconds before a pending "type a name for the new tag/…" prompt expires
 PENDING_CREATE_TTL = 10 * 60
 
+# Upper bound on remembered per-document metadata states (oldest evicted first)
+MAX_PENDING_ENTRIES = 200
+
+# Upper bound on remembered per-chat search queries (oldest evicted first)
+MAX_SEARCH_ENTRIES = 200
+
 
 def _h(text: object) -> str:
     """HTML-escape user/Paperless-controlled text for ParseMode.HTML messages.
@@ -104,9 +110,11 @@ class PaperlessBot:
         self.config = config
         self.client = PaperlessClient(config.paperless_url, config.paperless_token, inbox_tag_name=config.inbox_tag)
 
-        # Per-chat state for post-upload metadata assignment
-        # chat_id -> {"doc_id": int, "selected_tags": set[int]}
-        self.pending_uploads: dict[int, dict] = {}
+        # Per-document metadata state, keyed by (chat_id, doc_id) so several
+        # uploads in one chat stay independently editable and an old keyboard
+        # can never act on the wrong document
+        # (chat_id, doc_id) -> {"selected_tags": set[int], "ts": float}
+        self.pending_uploads: dict[tuple[int, int], dict] = {}
 
         # Per-chat search query (for pagination, since callback_data has 64-byte limit)
         self.search_queries: dict[int, str] = {}
@@ -140,16 +148,31 @@ class PaperlessBot:
             key=lambda x: x[1],
         )
 
-    def _pending_for(self, chat_id: int, doc_id: int) -> dict | None:
-        """Return the chat's pending-upload state only if it belongs to this document.
+    def _remember_pending(self, chat_id: int, doc_id: int, selected_tags: set[int]) -> dict:
+        """Store per-document metadata state, evicting the oldest entries."""
+        if len(self.pending_uploads) >= MAX_PENDING_ENTRIES:
+            oldest = sorted(self.pending_uploads, key=lambda k: self.pending_uploads[k]["ts"])
+            for key in oldest[: len(self.pending_uploads) - MAX_PENDING_ENTRIES + 1]:
+                del self.pending_uploads[key]
+        pending = {"selected_tags": selected_tags, "ts": time.monotonic()}
+        self.pending_uploads[(chat_id, doc_id)] = pending
+        return pending
 
-        A newer upload overwrites the chat's pending entry while older metadata
-        keyboards may still be live; acting on them must not touch the new state.
+    async def _get_or_restore_pending(self, chat_id: int, doc_id: int) -> dict:
+        """Return this document's metadata state, rebuilding it from Paperless if absent.
+
+        A keyboard can outlive its in-memory state (bot restart, eviction);
+        instead of a dead "stale keyboard" answer, re-seed the selection from
+        the document's current tags so the keyboard keeps working.
         """
-        pending = self.pending_uploads.get(chat_id)
-        if pending and pending.get("doc_id") == doc_id:
-            return pending
-        return None
+        pending = self.pending_uploads.get((chat_id, doc_id))
+        if pending is None:
+            tag_ids = await self.client.get_document_tag_ids(doc_id)
+            inbox_id = self.client._inbox_tag_id
+            pending = self._remember_pending(chat_id, doc_id, {t for t in tag_ids if t != inbox_id})
+        else:
+            pending["ts"] = time.monotonic()
+        return pending
 
     # =========================================================================
     # COMMAND HANDLERS
@@ -244,11 +267,11 @@ class PaperlessBot:
             stats = await self.client.get_statistics()
             text = (
                 "<b>Paperless-NGX Statistics</b>\n\n"
-                f"Documents: {stats.get('documents_total', 'N/A')}\n"
-                f"In inbox: {stats.get('documents_inbox', 'N/A')}\n"
-                f"Correspondents: {stats.get('correspondents_total', 'N/A')}\n"
-                f"Tags: {stats.get('tags_total', 'N/A')}\n"
-                f"Document types: {stats.get('document_types_total', 'N/A')}"
+                f"Documents: {_h(stats.get('documents_total', 'N/A'))}\n"
+                f"In inbox: {_h(stats.get('documents_inbox', 'N/A'))}\n"
+                f"Correspondents: {_h(stats.get('correspondents_total', 'N/A'))}\n"
+                f"Tags: {_h(stats.get('tags_total', 'N/A'))}\n"
+                f"Document types: {_h(stats.get('document_types_total', 'N/A'))}"
             )
             await update.message.reply_text(text, parse_mode=ParseMode.HTML)
         except Exception:
@@ -264,7 +287,7 @@ class PaperlessBot:
         task_id = await self.client.upload_document(file_bytes, filename)
         logger.info("Uploaded %d bytes to Paperless, task %s", len(file_bytes), task_id)
         await _safe_edit(
-            status_msg, f"Uploaded! Processing... (task: <code>{task_id[:8]}</code>)", parse_mode=ParseMode.HTML
+            status_msg, f"Uploaded! Processing... (task: <code>{_h(task_id[:8])}</code>)", parse_mode=ParseMode.HTML
         )
 
         result = await self.client.wait_for_task(task_id, timeout=self.config.upload_task_timeout)
@@ -276,7 +299,7 @@ class PaperlessBot:
             # minus the auto-managed inbox tag, so the keyboard reflects reality.
             inbox_id = self.client._inbox_tag_id
             preselected = {tid for tid in document.tag_ids if tid != inbox_id}
-            self.pending_uploads[chat_id] = {"doc_id": result.doc_id, "selected_tags": preselected}
+            self._remember_pending(chat_id, result.doc_id, preselected)
             await _safe_edit(
                 status_msg,
                 f"Document processed: <b>{_h(document.title)}</b>\n\nSet metadata?",
@@ -294,7 +317,7 @@ class PaperlessBot:
                     await _safe_edit(
                         status_msg,
                         f"Duplicate detected. This file already exists as <b>{_h(existing.title)}</b> (#{existing.id}).\n"
-                        f"Added: {existing.added}",
+                        f"Added: {_h(existing.added)}",
                         parse_mode=ParseMode.HTML,
                         reply_markup=keyboard,
                     )
@@ -385,7 +408,12 @@ class PaperlessBot:
 
         # Check if we're waiting for a new metadata item name
         pending = self.pending_creates.pop(chat_id, None)
-        if pending and time.monotonic() - pending.get("ts", 0.0) <= PENDING_CREATE_TTL:
+        if pending:
+            if time.monotonic() - pending.get("ts", 0.0) > PENDING_CREATE_TTL:
+                await update.message.reply_text(
+                    "That new-item prompt expired. Tap the button again if you still want to create it."
+                )
+                return
             await self._create_new_item(update, context, chat_id, text, pending)
             return
 
@@ -400,12 +428,11 @@ class PaperlessBot:
         try:
             if item_type == "tag":
                 tag = await self.client.create_tag(name)
-                # Auto-select the new tag
-                upload = self.pending_uploads.get(chat_id)
-                if upload:
-                    upload.setdefault("selected_tags", set()).add(tag.id)
+                # Auto-select the new tag on the document this prompt was for
+                upload = await self._get_or_restore_pending(chat_id, doc_id)
+                upload["selected_tags"].add(tag.id)
                 tags = self._user_visible_tags()
-                selected = upload.get("selected_tags", set()) if upload else set()
+                selected = upload["selected_tags"]
                 await update.message.reply_text(
                     f"Tag <b>{_h(tag.name)}</b> created and selected.\n\nSelect tags:",
                     parse_mode=ParseMode.HTML,
@@ -440,6 +467,8 @@ class PaperlessBot:
     async def _do_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query: str, page: int):
         """Execute a document search and display results."""
         chat_id = update.effective_chat.id
+        if chat_id not in self.search_queries and len(self.search_queries) >= MAX_SEARCH_ENTRIES:
+            self.search_queries.pop(next(iter(self.search_queries)))
         self.search_queries[chat_id] = query
 
         status_msg = await context.bot.send_message(
@@ -565,8 +594,8 @@ class PaperlessBot:
         await self.client._ensure_cache()
         if item_type == "tag":
             tags = self._user_visible_tags()
-            pending = self._pending_for(chat_id, doc_id)
-            selected = pending.get("selected_tags", set()) if pending else set()
+            pending = await self._get_or_restore_pending(chat_id, doc_id)
+            selected = pending.get("selected_tags", set())
             await _safe_query_edit(
                 query,
                 "Select tags:",
@@ -599,8 +628,8 @@ class PaperlessBot:
         if action == "tags":
             await self.client._ensure_cache()
             tags = self._user_visible_tags()
-            pending = self._pending_for(chat_id, doc_id)
-            selected = pending.get("selected_tags", set()) if pending else set()
+            pending = await self._get_or_restore_pending(chat_id, doc_id)
+            selected = pending["selected_tags"]
             await _safe_query_edit(
                 query,
                 "Select tags:",
@@ -626,8 +655,7 @@ class PaperlessBot:
             )
 
         elif action == "done":
-            if self._pending_for(chat_id, doc_id):
-                self.pending_uploads.pop(chat_id, None)
+            self.pending_uploads.pop((chat_id, doc_id), None)
             doc_url = self._document_url(doc_id)
             if self.config.remove_inbox_on_done:
                 try:
@@ -636,7 +664,7 @@ class PaperlessBot:
                     logger.exception("Failed to remove Inbox tag from document %d", doc_id)
             await _safe_query_edit(
                 query,
-                f'Metadata saved.\n\n<a href="{doc_url}">Open in Paperless</a>',
+                f'Metadata saved.\n\n<a href="{html.escape(doc_url)}">Open in Paperless</a>',
                 parse_mode=ParseMode.HTML,
             )
 
@@ -648,12 +676,7 @@ class PaperlessBot:
         tag_id = int(parts[2])
         doc_id = int(parts[3])
 
-        pending = self._pending_for(chat_id, doc_id)
-        if not pending:
-            await _safe_query_edit(
-                query, "This keyboard belongs to an older upload. Send the document again to edit it."
-            )
-            return
+        pending = await self._get_or_restore_pending(chat_id, doc_id)
 
         selected = pending.get("selected_tags", set())
         if current_state == "o":
@@ -683,8 +706,8 @@ class PaperlessBot:
         page = int(parts[1])
         doc_id = int(parts[2])
 
-        pending = self._pending_for(chat_id, doc_id)
-        selected = pending.get("selected_tags", set()) if pending else set()
+        pending = await self._get_or_restore_pending(chat_id, doc_id)
+        selected = pending.get("selected_tags", set())
         tags = self._user_visible_tags()
 
         await _safe_query_edit(
@@ -702,14 +725,10 @@ class PaperlessBot:
         query = update.callback_query
         doc_id = int(data.split(":")[1])
 
-        pending = self._pending_for(chat_id, doc_id)
-        if pending is None:
-            # Never PATCH from a stale keyboard — an empty stale selection
-            # would strip every visible tag from the document.
-            await _safe_query_edit(
-                query, "This keyboard belongs to an older upload. Send the document again to edit it."
-            )
-            return
+        # Restored state seeds the selection from the document's current tags,
+        # so a keyboard that outlived memory confirms as a harmless no-op
+        # instead of stripping tags.
+        pending = await self._get_or_restore_pending(chat_id, doc_id)
         selected = pending.get("selected_tags", set())
 
         try:
@@ -796,7 +815,7 @@ class PaperlessBot:
             doc_url = self._document_url(doc_id)
             await _safe_query_edit(
                 query,
-                f'<b>{_h(doc.title)}</b> marked as reviewed.\n\n<a href="{doc_url}">Open in Paperless</a>',
+                f'<b>{_h(doc.title)}</b> marked as reviewed.\n\n<a href="{html.escape(doc_url)}">Open in Paperless</a>',
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
@@ -871,7 +890,7 @@ class PaperlessBot:
                 details.append(f"Tags: {_h(', '.join(doc.tags))}")
             if details:
                 line += f"\n  {' | '.join(details)}"
-            line += f"\n  Added: {doc.added}"
+            line += f"\n  Added: {_h(doc.added)}"
             if doc.content:
                 snippet = _h(doc.content[:100])
                 line += f'\n  "{snippet}..."'
@@ -914,13 +933,18 @@ def create_bot(config: Config) -> Application:
         .build()
     )
 
+    # Only react to fresh direct messages — the default CommandHandler filter
+    # also matches EDITED commands, whose update.message is None and would
+    # crash every cmd_* handler.
+    _new_message = filters.UpdateType.MESSAGE
+
     # Command handlers
-    app.add_handler(CommandHandler("start", bot.cmd_start))
-    app.add_handler(CommandHandler("help", bot.cmd_help))
-    app.add_handler(CommandHandler("search", bot.cmd_search))
-    app.add_handler(CommandHandler("recent", bot.cmd_recent))
-    app.add_handler(CommandHandler("inbox", bot.cmd_inbox))
-    app.add_handler(CommandHandler("stats", bot.cmd_stats))
+    app.add_handler(CommandHandler("start", bot.cmd_start, filters=_new_message))
+    app.add_handler(CommandHandler("help", bot.cmd_help, filters=_new_message))
+    app.add_handler(CommandHandler("search", bot.cmd_search, filters=_new_message))
+    app.add_handler(CommandHandler("recent", bot.cmd_recent, filters=_new_message))
+    app.add_handler(CommandHandler("inbox", bot.cmd_inbox, filters=_new_message))
+    app.add_handler(CommandHandler("stats", bot.cmd_stats, filters=_new_message))
 
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(bot.handle_callback))
