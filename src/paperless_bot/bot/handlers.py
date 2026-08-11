@@ -2,8 +2,10 @@
 Telegram bot handlers for Paperless-NGX management.
 """
 
+import asyncio
 import html
 import logging
+import mimetypes
 import time
 
 from telegram import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
@@ -365,8 +367,13 @@ class PaperlessBot:
             )
             return
 
-        # file_name is optional in the Bot API (e.g. some forwarded documents)
-        filename = doc.file_name or f"document_{update.message.date.strftime('%Y%m%d_%H%M%S')}"
+        # file_name is optional in the Bot API (e.g. some forwarded documents).
+        # Paperless picks its parser from the filename suffix, so the fallback
+        # needs a real extension derived from the mime type.
+        filename = doc.file_name
+        if not filename:
+            ext = mimetypes.guess_extension(doc.mime_type or "") or ".pdf"
+            filename = f"document_{update.message.date.strftime('%Y%m%d_%H%M%S')}{ext}"
         status_msg = await update.message.reply_text(
             f"Uploading <code>{_h(filename)}</code> to Paperless-NGX...", parse_mode=ParseMode.HTML
         )
@@ -756,25 +763,29 @@ class PaperlessBot:
         if pending is None:
             await _safe_query_edit(query, "Couldn't reach Paperless to load this document's state. Try again.")
             return
-        selected = pending.get("selected_tags", set())
 
-        try:
-            current = set(await self.client.get_document_tag_ids(doc_id))
-            visible = {tid for tid, _ in self._user_visible_tags()}
-            final = sorted((current - visible) | selected)
+        # Hold the per-document lock through the PATCH so a toggle arriving
+        # mid-confirmation cannot be silently dropped from the saved tags.
+        async with pending.setdefault("lock", asyncio.Lock()):
+            selected = pending.get("selected_tags", set())
 
-            if set(final) != current:
-                await self.client.update_document(doc_id, tags=final)
+            try:
+                current = set(await self.client.get_document_tag_ids(doc_id))
+                visible = {tid for tid, _ in self._user_visible_tags()}
+                final = sorted((current - visible) | selected)
 
-            if selected:
-                tag_names = sorted(self.client._tags_cache.get(tid, f"#{tid}") for tid in selected)
-                text = f"Tags set: {', '.join(tag_names)}\n\nContinue setting metadata?"
-            else:
-                text = "No tags selected.\n\nContinue setting metadata?"
-            await _safe_query_edit(query, text, reply_markup=build_metadata_keyboard(doc_id))
-        except Exception:
-            logger.exception("Failed to update tags")
-            await _safe_query_edit(query, "Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
+                if set(final) != current:
+                    await self.client.update_document(doc_id, tags=final)
+
+                if selected:
+                    tag_names = sorted(self.client._tags_cache.get(tid, f"#{tid}") for tid in selected)
+                    text = f"Tags set: {', '.join(tag_names)}\n\nContinue setting metadata?"
+                else:
+                    text = "No tags selected.\n\nContinue setting metadata?"
+                await _safe_query_edit(query, text, reply_markup=build_metadata_keyboard(doc_id))
+            except Exception:
+                logger.exception("Failed to update tags")
+                await _safe_query_edit(query, "Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
 
     async def _handle_single_select(self, update, context, chat_id: int, data: str, field_name: str):
         """Handle single-select (correspondent or document type)."""

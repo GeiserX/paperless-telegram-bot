@@ -1058,7 +1058,7 @@ class TestOversizeAndFilename:
         with patch.object(bot, "_process_upload", new_callable=AsyncMock) as mock_upload:
             await bot.handle_document(update, ctx)
             filename = mock_upload.call_args.args[3]
-            assert filename == "document_20260811_120000"
+            assert filename == "document_20260811_120000.pdf"
 
 
 class TestStaleKeyboards:

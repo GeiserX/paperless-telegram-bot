@@ -138,7 +138,7 @@ paperless-telegram-bot
 
 ## Security
 
-- **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. When empty, the bot accepts messages from anyone (not recommended for production).
+- **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. An empty allowlist refuses to start unless `ALLOW_OPEN_ACCESS=true` is set explicitly (running open is not recommended).
 - **Non-root container** -- The Docker image runs as an unprivileged `paperlessbot` user (UID 1000).
 - **No secrets in code** -- All credentials are loaded from environment variables. Never commit `.env` files.
 - **API token scoping** -- The bot uses a single Paperless-NGX API token. Create a dedicated user/token with appropriate permissions.

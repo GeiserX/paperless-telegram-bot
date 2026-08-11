@@ -58,6 +58,8 @@ call_lefthook()
 }
 
 call_lefthook run "pre-commit" "$@"
+_delegated_exit=$?
+[ "$_delegated_exit" -ne 0 ] && exit "$_delegated_exit"
 
 # --- BEGIN BEADS INTEGRATION v1.1.2 ---
 # This section is managed by beads. Do not remove these markers.
