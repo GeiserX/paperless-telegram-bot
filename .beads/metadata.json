@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "paperless_telegram_bot",
+  "project_id": "2b90b77e-a2bc-4726-8279-a3460c436db4"
+}
