@@ -17,9 +17,9 @@ Fix: add it (comma-separated for several people) and recreate the container.
 
 ## An upload says "Processing timed out"
 
-Cause: Paperless did not finish the document within `UPLOAD_TASK_TIMEOUT` seconds (300 by default), for example because its workers are busy. The document often appears in Paperless a little later.
+Cause: Paperless did not report the upload task as finished within `UPLOAD_TASK_TIMEOUT` seconds (300 by default), for example because its workers are busy. The document often appears in Paperless a little later. (When the bot cannot reach the task API at all, it answers "Processing failed" instead.)
 
-Fix: check Paperless for the document. If this happens often, raise `UPLOAD_TASK_TIMEOUT`.
+Fix: check Paperless for the document. If processing regularly takes longer than the timeout, raise `UPLOAD_TASK_TIMEOUT`.
 
 ## The container is unhealthy
 
