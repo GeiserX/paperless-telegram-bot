@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/GeiserX/paperless-telegram-bot/main/docs/images/banner.svg" alt="paperless-telegram-bot banner" width="900"/>
+  <img src="https://raw.githubusercontent.com/GeiserX/paperless-telegram-bot/main/docs/images/banner.svg" alt="paperless-telegram-bot" width="900"/>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 
 ---
 
-A full-featured Telegram bot that integrates with [Paperless-NGX](https://docs.paperless-ngx.com/), giving you complete document management from your phone or desktop -- no web UI required. Upload documents and photos, search your archive with full-text search, manage metadata, review your inbox, and download files, all within Telegram.
+A Telegram bot for [Paperless-NGX](https://docs.paperless-ngx.com/), run in Docker or from PyPI. Upload documents and photos, search the archive, set tags, correspondents and document types, review the inbox and download files, all from a Telegram chat.
 
 ## Features
 
@@ -28,7 +28,6 @@ A full-featured Telegram bot that integrates with [Paperless-NGX](https://docs.p
 - **Recent Documents and Statistics** -- `/recent` and `/stats`.
 - **User Authorization** -- only the Telegram user IDs in the allowlist can use the bot.
 - **Health Endpoint and Non-Root Docker** -- `/health` for Docker health checks; runs as an unprivileged user.
-- Compatible with Paperless-NGX **2.x and 3.x**.
 
 ## Quick start
 
@@ -38,17 +37,18 @@ docker run -d --name paperless-telegram-bot --restart unless-stopped \
   -e PAPERLESS_TOKEN=your_api_token -e TELEGRAM_ALLOWED_USERS=123456789 drumsergio/paperless-telegram-bot:v0.7.0
 ```
 
-Docker Compose and a manual install are in the [installation guide](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/installation.md).
+Works with Paperless-NGX 2.x and 3.x. Docker Compose and a manual install are in [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md).
 
 ## Documentation
 
-- [Installation](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/installation.md): Docker, Docker Compose, manual
+- [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md): Docker, Docker Compose, manual
 - [Configuration](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/configuration.md): every environment variable, and security notes
 - [Usage](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/usage.md): commands, uploads and the metadata flow
-- [Architecture](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/architecture.md): code layout and design decisions
+- [How it works](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/how-it-works.md): code layout and design decisions
+- [Troubleshooting](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/troubleshooting.md)
 - [Development](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/development.md): tests, linting, contributing, related projects
 - [Roadmap](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/ROADMAP.md)
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE).
+[GPL-3.0-or-later](https://github.com/GeiserX/paperless-telegram-bot/blob/main/LICENSE)
