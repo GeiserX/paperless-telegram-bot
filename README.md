@@ -27,7 +27,7 @@ paperless-telegram-bot is a Telegram bot for [Paperless-ngx](https://docs.paperl
 - `/inbox` lists what still carries the inbox tag; Reviewed clears it with one tap, and so does Done after an upload.
 - Get the original file back in the chat, up to 50 MB.
 - `/recent` shows the latest documents and `/stats` the archive's counts.
-- Only the Telegram user ids you list can use the bot; everyone else is refused.
+- Only the Telegram user ids you list can use the bot; everyone else is refused. It refuses to start with an empty list unless you set `ALLOW_OPEN_ACCESS=true`, which opens it to every Telegram user.
 - Works with Paperless-ngx 2.x and 3.x.
 
 ## Quick start
@@ -40,6 +40,8 @@ docker run -d --name paperless-telegram-bot --restart unless-stopped \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
   drumsergio/paperless-telegram-bot:v0.7.0
 ```
+
+The image is amd64 only; on arm64, install from source as [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md#from-source) shows.
 
 Get the three values first: the bot token from [@BotFather](https://t.me/BotFather) (`/newbot`), the Paperless API token from your Paperless profile (click your user name, then My Profile, API Auth Token), and your own Telegram user id from [@userinfobot](https://t.me/userinfobot). `PAPERLESS_URL` is the address the bot can reach, which is not always the one in your browser. Use the host's LAN address, or the Paperless container's name when both share a Docker network. When it works the log ends with `Bot commands registered with Telegram`, and sending `/start` to your bot in Telegram gets the command list back; Docker Compose, a run from source and what a working start looks like are in [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md).
 
