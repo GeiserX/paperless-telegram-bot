@@ -44,3 +44,6 @@ htmlcov/
 # Session/loop artifacts
 .omc/
 .goal-loop/
+
+# MkDocs build output
+site/

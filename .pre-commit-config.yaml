@@ -3,6 +3,8 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-yaml
+        # mkdocs.yml uses !!python/name tags; --unsafe checks syntax only.
+        args: [--unsafe]
       - id: check-toml
       - id: end-of-file-fixer
       - id: trailing-whitespace
