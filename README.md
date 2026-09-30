@@ -41,19 +41,21 @@ docker run -d --name paperless-telegram-bot --restart unless-stopped \
   drumsergio/paperless-telegram-bot:v0.7.0
 ```
 
-The image is amd64 only; on arm64, install from source as [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md#from-source) shows.
+The image is amd64 only; on arm64, install from source as [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/#from-source) shows.
 
-Get the three values first: the bot token from [@BotFather](https://t.me/BotFather) (`/newbot`), the Paperless API token from your Paperless profile (click your user name, then My Profile, API Auth Token), and your own Telegram user id from [@userinfobot](https://t.me/userinfobot). `PAPERLESS_URL` is the address the bot can reach, which is not always the one in your browser. Use the host's LAN address, or the Paperless container's name when both share a Docker network. When it works the log ends with `Bot commands registered with Telegram`, and sending `/start` to your bot in Telegram gets the command list back; Docker Compose, a run from source and what a working start looks like are in [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md).
+Get the three values first: the bot token from [@BotFather](https://t.me/BotFather) (`/newbot`), the Paperless API token from your Paperless profile (click your user name, then My Profile, API Auth Token), and your own Telegram user id from [@userinfobot](https://t.me/userinfobot). `PAPERLESS_URL` is the address the bot can reach, which is not always the one in your browser. Use the host's LAN address, or the Paperless container's name when both share a Docker network. When it works the log ends with `Bot commands registered with Telegram`, and sending `/start` to your bot in Telegram gets the command list back; Docker Compose, a run from source and what a working start looks like are in [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/).
 
 ## Documentation
 
-- [Getting started](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/getting-started.md): what you need first, Docker, Docker Compose, from source, and what a working start looks like
-- [Configuration](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/configuration.md): every environment variable and its default, and the security notes
-- [Usage](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/usage.md): a session step by step: upload, tags, search, download, inbox
-- [How it works](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/how-it-works.md): the code layout and the design decisions
-- [Troubleshooting](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/troubleshooting.md): symptom, cause, fix
-- [Development](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/development.md): tests, linting, contributing
-- [Related projects](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/related.md): the other Telegram bots and tools
+Everything below is on the site, https://geiserx.github.io/paperless-telegram-bot/.
+
+- [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/): what you need first, Docker, Docker Compose, from source, and what a working start looks like
+- [Configuration](https://geiserx.github.io/paperless-telegram-bot/configuration/): every environment variable and its default, and the security notes
+- [Usage](https://geiserx.github.io/paperless-telegram-bot/usage/): a session step by step: upload, tags, search, download, inbox
+- [How it works](https://geiserx.github.io/paperless-telegram-bot/how-it-works/): the code layout and the design decisions
+- [Troubleshooting](https://geiserx.github.io/paperless-telegram-bot/troubleshooting/): symptom, cause, fix
+- [Development](https://geiserx.github.io/paperless-telegram-bot/development/): tests, linting, contributing
+- [Related projects](https://geiserx.github.io/paperless-telegram-bot/related/): the other Telegram bots and tools
 - [Roadmap](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/ROADMAP.md)
 
 ## License
