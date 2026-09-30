@@ -1,7 +1,6 @@
 ---
 hide:
   - navigation
-  - toc
 ---
 
 # paperless-telegram-bot { .ptb-visually-hidden }
