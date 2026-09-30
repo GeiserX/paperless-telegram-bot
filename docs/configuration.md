@@ -5,8 +5,8 @@ All configuration is done through environment variables. Copy `.env.example` to 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | -- | Telegram Bot API token from [@BotFather](https://t.me/BotFather) |
-| `PAPERLESS_URL` | Yes | -- | Paperless-NGX instance URL (e.g. `http://localhost:8000`) |
-| `PAPERLESS_TOKEN` | Yes | -- | Paperless-NGX API authentication token |
+| `PAPERLESS_URL` | Yes | -- | Paperless-ngx instance URL (e.g. `http://localhost:8000`) |
+| `PAPERLESS_TOKEN` | Yes | -- | Paperless-ngx API authentication token |
 | `TELEGRAM_ALLOWED_USERS` | Yes* | -- | Comma-separated Telegram user IDs allowed to use the bot. *Required unless `ALLOW_OPEN_ACCESS=true`; an empty allowlist refuses to start |
 | `ALLOW_OPEN_ACCESS` | No | `false` | Explicit opt-in to run **without** an allowlist (open to any Telegram user) |
 | `PAPERLESS_PUBLIC_URL` | No | `PAPERLESS_URL` | User-facing URL for clickable document links |
@@ -18,11 +18,11 @@ All configuration is done through environment variables. Copy `.env.example` to 
 | `LOG_LEVEL` | No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `HEALTH_PORT` | No | `8080` | Port for the `/health` HTTP endpoint (returns `503 degraded` when Paperless is unreachable) |
 
-Compatible with Paperless-NGX **2.x and 3.x** (both task-API response formats are handled).
+Compatible with Paperless-ngx **2.x and 3.x** (both task-API response formats are handled).
 
 ## Security
 
 - **User allowlist** -- Set `TELEGRAM_ALLOWED_USERS` to restrict access. An empty allowlist refuses to start unless `ALLOW_OPEN_ACCESS=true` is set explicitly (running open is not recommended).
 - **Non-root container** -- The Docker image runs as an unprivileged `paperlessbot` user (UID 1000).
 - **No secrets in code** -- All credentials are loaded from environment variables. Never commit `.env` files.
-- **API token scoping** -- The bot uses a single Paperless-NGX API token. Create a dedicated user/token with appropriate permissions.
+- **API token scoping** -- The bot uses a single Paperless-ngx API token. Create a dedicated user/token with appropriate permissions.

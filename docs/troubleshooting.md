@@ -32,7 +32,7 @@ Fix: check that `PAPERLESS_URL` is reachable from the container and that `PAPERL
 Open an [issue](https://github.com/GeiserX/paperless-telegram-bot/issues) with:
 
 - the version you run (the `version` field of `/health`, or the image tag);
-- your Paperless-NGX version;
+- your Paperless-ngx version;
 - the log around the problem, with `LOG_LEVEL=DEBUG` if you can reproduce it;
 - what you sent to the bot and what it answered.
 
