@@ -6,7 +6,7 @@ paperless-telegram-bot
 |   |-- __main__.py         # Entry point, health server, CLI
 |   |-- config.py           # Environment variable loading and validation
 |   |-- api/
-|   |   +-- client.py       # Async Paperless-NGX API client with caching
+|   |   +-- client.py       # Async Paperless-ngx API client with caching
 |   +-- bot/
 |       |-- handlers.py     # Command handlers, callback routing, upload flow
 |       +-- keyboards.py    # Inline keyboard builders for metadata selection

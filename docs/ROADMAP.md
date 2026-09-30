@@ -60,7 +60,7 @@ Automatic document pickup from cloud storage providers:
 - Alternative: `rclone sync` (periodic cron) from OneDrive to local consume folder
 - Same `rclone mount` caveat applies
 
-**General pattern:** The most reliable approach for any cloud storage is: cloud API or sync client writes to a local directory, Paperless-NGX watches that directory as a consume folder. Direct API-to-API (cloud -> Paperless REST API) avoids filesystem issues entirely but requires custom scripting or n8n.
+**General pattern:** The most reliable approach for any cloud storage is: cloud API or sync client writes to a local directory, Paperless-ngx watches that directory as a consume folder. Direct API-to-API (cloud -> Paperless REST API) avoids filesystem issues entirely but requires custom scripting or n8n.
 
 ## Lower Priority
 
