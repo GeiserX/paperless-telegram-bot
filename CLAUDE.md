@@ -64,8 +64,8 @@ pre-commit run --all-files
 1. Create feature branch, push, open PR, squash-merge to `main`
 2. Create a GitHub release via `gh release create vX.Y.Z --target main` (GHA triggers on release tags)
 3. **Wait for GHA `docker-publish.yml` to complete** -- verify the run succeeds before proceeding
-4. Update `gitea/geiserback/paperless-telegram-bot/docker-compose.yml` with the new tag, commit and push to Gitea
-5. Redeploy via Portainer API on **geiserback** (stack ID `80`, endpoint `2`)
+4. In the geiserback GitOps repo, set `paperless-telegram-bot/docker-compose.yml` to `drumsergio/paperless-telegram-bot:vX.Y.Z@sha256:<digest>` (digest from `docker buildx imagetools inspect drumsergio/paperless-telegram-bot:vX.Y.Z --format '{{.Manifest.Digest}}'`), commit and push. The deploy webhook on geiserback redeploys the stack. Don't run `docker compose up` by hand as well. It races the webhook.
+5. Wait for the webhook's `=== Deploy Summary ===` line in `docker logs webhook` on geiserback
 6. Verify with `docker ps --filter name=paperless_telegram_bot` and check logs for `Bot commands registered`
 
 ## Environment Variables
