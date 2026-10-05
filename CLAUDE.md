@@ -58,14 +58,14 @@ pre-commit run --all-files
 - **Major** (`v0.x.y` -> `v1.0.0`): Breaking changes
 - Check the latest tag before tagging: `git describe --tags --abbrev=0`
 - Update version in both `pyproject.toml` and `src/paperless_bot/__init__.py`
-- Also update the image tag in `gitea/geiserback/paperless-telegram-bot/docker-compose.yml` to match
+- Also update the image tag in `paperless-telegram-bot/docker-compose.yml` of the private GitOps repo to match
 
 ### Release Steps
 1. Create feature branch, push, open PR, squash-merge to `main`
 2. Create a GitHub release via `gh release create vX.Y.Z --target main` (GHA triggers on release tags)
 3. **Wait for GHA `docker-publish.yml` to complete** -- verify the run succeeds before proceeding
-4. In the geiserback GitOps repo, set `paperless-telegram-bot/docker-compose.yml` to `drumsergio/paperless-telegram-bot:vX.Y.Z@sha256:<digest>` (digest from `docker buildx imagetools inspect drumsergio/paperless-telegram-bot:vX.Y.Z --format '{{.Manifest.Digest}}'`), commit and push. The deploy webhook on geiserback redeploys the stack. Don't run `docker compose up` by hand as well. It races the webhook.
-5. Wait for the webhook's `=== Deploy Summary ===` line in `docker logs webhook` on geiserback
+4. In the deploy host's private GitOps repo, set `paperless-telegram-bot/docker-compose.yml` to `drumsergio/paperless-telegram-bot:vX.Y.Z@sha256:<digest>` (digest from `docker buildx imagetools inspect drumsergio/paperless-telegram-bot:vX.Y.Z --format '{{.Manifest.Digest}}'`), commit and push. The deploy webhook on the deploy host redeploys the stack. Don't run `docker compose up` by hand as well. It races the webhook.
+5. Wait for the webhook's `=== Deploy Summary ===` line in `docker logs webhook` on the deploy host
 6. Verify with `docker ps --filter name=paperless_telegram_bot` and check logs for `Bot commands registered`
 
 ## Environment Variables
