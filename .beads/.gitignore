@@ -3,6 +3,11 @@ dolt/
 embeddeddolt/
 proxieddb/
 
+# Tracker data lives in the Dolt remote only, never in git (exports and logs)
+issues.jsonl
+interactions.jsonl
+events.jsonl
+
 # Runtime files
 bd.sock
 bd.sock.startlock
