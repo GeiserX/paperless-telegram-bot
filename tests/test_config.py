@@ -173,3 +173,22 @@ def test_parse_id_set_whitespace():
 def test_parse_id_set_trailing_comma():
     result = Config._parse_id_set("123,456,")
     assert result == {123, 456}
+
+
+def test_dotenv_read_from_working_directory(tmp_path, monkeypatch):
+    """An installed package lives in site-packages, so .env must be found from the cwd."""
+    import importlib
+    import os
+
+    import paperless_bot.config as config_module
+
+    (tmp_path / ".env").write_text("DOTENV_CWD_PROBE=found\n")
+    workdir = tmp_path / "sub"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    monkeypatch.delenv("DOTENV_CWD_PROBE", raising=False)
+
+    importlib.reload(config_module)
+
+    assert os.environ.get("DOTENV_CWD_PROBE") == "found"
+    monkeypatch.delenv("DOTENV_CWD_PROBE")

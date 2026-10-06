@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paperless-telegram-bot"
-version = "0.7.0"
+version = "0.7.1"
 description = "Manage Paperless-NGX documents via Telegram bot. Upload, search, download, and organize."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,9 +49,8 @@ Issues = "https://github.com/GeiserX/paperless-telegram-bot/issues"
 [project.scripts]
 paperless-bot = "paperless_bot.__main__:main"
 
-[tool.setuptools]
-packages = ["paperless_bot"]
-package-dir = {"paperless_bot" = "src/paperless_bot"}
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 target-version = "py311"

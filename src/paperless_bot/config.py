@@ -5,9 +5,11 @@ Loads and validates settings from environment variables.
 import logging
 import os
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()
+# Search from the working directory, not from this file: an installed package lives in
+# site-packages, where the default search would never find the user's .env.
+load_dotenv(find_dotenv(usecwd=True))
 
 logger = logging.getLogger(__name__)
 

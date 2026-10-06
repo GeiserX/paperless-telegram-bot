@@ -32,3 +32,32 @@ jobs:
         with:
           file: ./coverage.xml
         continue-on-error: true
+
+  package:
+    # Install the built wheel, not the source tree: 0.7.0 shipped a wheel without
+    # the api/ and bot/ subpackages and the editable install in `test` hid it.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Build the wheel
+        run: |
+          pip install build
+          python -m build --wheel --outdir dist
+
+      - name: Install it in a clean venv and import every module
+        run: |
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/wheel-venv/bin/paperless-bot --version
+          /tmp/wheel-venv/bin/python -c "import paperless_bot.__main__, paperless_bot.api.client, paperless_bot.bot.handlers, paperless_bot.bot.keyboards"

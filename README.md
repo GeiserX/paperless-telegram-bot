@@ -38,10 +38,10 @@ docker run -d --name paperless-telegram-bot --restart unless-stopped \
   -e PAPERLESS_URL=http://paperless.home:8000 \
   -e PAPERLESS_TOKEN=your_paperless_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:v0.7.0
+  drumsergio/paperless-telegram-bot:v0.7.1
 ```
 
-The image is amd64 only; on arm64, install from source as [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/#from-source) shows.
+The image runs on amd64 and arm64. Without Docker, `pip install paperless-telegram-bot` (Python 3.11 or newer) gives you the same `paperless-bot run`; [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/#from-pypi) has the steps.
 
 Get the three values first: the bot token from [@BotFather](https://t.me/BotFather) (`/newbot`), the Paperless API token from your Paperless profile (click your user name, then My Profile, API Auth Token), and your own Telegram user id from [@userinfobot](https://t.me/userinfobot). `PAPERLESS_URL` is the address the bot can reach, which is not always the one in your browser. Use the host's LAN address, or the Paperless container's name when both share a Docker network. When it works the log ends with `Bot commands registered with Telegram`, and sending `/start` to your bot in Telegram gets the command list back; Docker Compose, a run from source and what a working start looks like are in [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/).
 
