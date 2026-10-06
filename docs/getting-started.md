@@ -14,7 +14,7 @@ Works with Paperless-ngx 2.x and 3.x.
 
 ## Docker
 
-The image is built for amd64 only. On an arm64 host (a Raspberry Pi, an Apple silicon Mac), install [from source](#from-source).
+The image is built for amd64 and arm64, so it also runs on a Raspberry Pi or an Apple silicon Mac.
 
 ```bash
 docker run -d \
@@ -24,7 +24,7 @@ docker run -d \
   -e PAPERLESS_URL=http://paperless.home:8000 \
   -e PAPERLESS_TOKEN=your_paperless_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:v0.7.0
+  drumsergio/paperless-telegram-bot:v0.7.1
 ```
 
 ## Docker Compose
@@ -34,7 +34,7 @@ Put this next to a `.env` file holding `TELEGRAM_BOT_TOKEN`, `PAPERLESS_TOKEN` a
 ```yaml
 services:
   paperless-telegram-bot:
-    image: drumsergio/paperless-telegram-bot:v0.7.0
+    image: drumsergio/paperless-telegram-bot:v0.7.1
     container_name: paperless-telegram-bot
     restart: unless-stopped
     environment:
@@ -49,9 +49,21 @@ services:
       retries: 3
 ```
 
+## From PyPI
+
+Python 3.11 or newer. Use 0.7.1 or later: the 0.7.0 package is missing the bot's modules and stops with `ModuleNotFoundError: No module named 'paperless_bot.api'`.
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install paperless-telegram-bot
+paperless-bot run
+```
+
+The bot reads a `.env` in the directory you start it from (or the nearest one above it); start from [`.env.example`](https://github.com/GeiserX/paperless-telegram-bot/blob/main/.env.example). Variables already set in the environment win over the file.
+
 ## From source
 
-Python 3.11 or newer. The 0.7.0 package on PyPI is missing the bot's modules and stops with `ModuleNotFoundError: No module named 'paperless_bot.api'`, so install from a clone until the next release.
+Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/GeiserX/paperless-telegram-bot.git
@@ -62,14 +74,14 @@ cp .env.example .env   # then fill in the four values
 paperless-bot run
 ```
 
-With this install the bot reads the `.env` in the clone's folder, whatever directory you start it from. `paperless-bot --version` prints the installed version.
+Start it from the clone's folder so it finds the `.env` there. `paperless-bot --version` prints the installed version.
 
 ## What a working start looks like
 
 The log, in this order (the timestamps and logger names are left out):
 
 ```
-Paperless Telegram Bot v0.7.0 starting...
+Paperless Telegram Bot v0.7.1 starting...
 Connected to Paperless-NGX <version> (API v<n>) at http://paperless:8000
 Health check endpoint running on port 8080
 Telegram bot configured

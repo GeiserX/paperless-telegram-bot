@@ -58,17 +58,17 @@ hide:
       -e PAPERLESS_URL=http://paperless.home:8000 \
       -e PAPERLESS_TOKEN=your_paperless_api_token \
       -e TELEGRAM_ALLOWED_USERS=123456789 \
-      drumsergio/paperless-telegram-bot:v0.7.0
+      drumsergio/paperless-telegram-bot:v0.7.1
     ```
 
-    The image is amd64 only. On arm64, use the From source tab.
+    The image runs on amd64 and arm64.
 
 === "Docker Compose"
 
     ```yaml
     services:
       paperless-telegram-bot:
-        image: drumsergio/paperless-telegram-bot:v0.7.0
+        image: drumsergio/paperless-telegram-bot:v0.7.1
         container_name: paperless-telegram-bot
         restart: unless-stopped
         environment:
@@ -79,6 +79,16 @@ hide:
     ```
 
     Put it next to a `.env` holding the three secrets; [Docker Compose](getting-started.md#docker-compose) has the health check and where `.env` comes from.
+
+=== "From PyPI"
+
+    ```bash
+    python -m venv .venv && . .venv/bin/activate
+    pip install paperless-telegram-bot
+    paperless-bot run   # reads a .env in the current directory, or the variables above
+    ```
+
+    Python 3.11 or newer; see [From PyPI](getting-started.md#from-pypi).
 
 === "From source"
 
@@ -91,7 +101,7 @@ hide:
     paperless-bot run
     ```
 
-    Python 3.11 or newer. The 0.7.0 package on PyPI is missing modules, so this is the path until the next release; see [From source](getting-started.md#from-source).
+    Python 3.11 or newer; see [From source](getting-started.md#from-source).
 
 Get the three values first: the bot token from [@BotFather](https://t.me/BotFather), the Paperless API token from your Paperless profile, and your own Telegram user id from [@userinfobot](https://t.me/userinfobot). [Before you start](getting-started.md#before-you-start) walks through each. `PAPERLESS_URL` is the address the bot can reach, which is not always the one in your browser. When it works the log ends with `Bot commands registered with Telegram`, and `/start` in the chat gets the command list back.
 
@@ -108,7 +118,7 @@ Get the three values first: the bot token from [@BotFather](https://t.me/BotFath
 
 ## How it runs
 
-- One container, `drumsergio/paperless-telegram-bot`, built for amd64, running as an unprivileged user (uid 1000). Python 3.11 or newer from source.
+- One container, `drumsergio/paperless-telegram-bot`, built for amd64 and arm64, running as an unprivileged user (uid 1000). Python 3.11 or newer from PyPI or a clone.
 - It polls Telegram, so every connection is outbound. The only thing it listens on is `/health` on `HEALTH_PORT` (8080), which answers `503 degraded` when Paperless is unreachable; nothing outside the container needs it.
 - It talks to Paperless-ngx over the REST API with one API token, and works with Paperless-ngx 2.x and 3.x.
 - Nothing is written to disk: tags, correspondents and document types are cached in memory and refreshed on demand, and a chat's last search query lives there too until the bot restarts.
@@ -118,7 +128,6 @@ Get the three values first: the bot token from [@BotFather](https://t.me/BotFath
 - It does not send a message when Paperless finishes a new document. That, thumbnails in result lists and creation-date editing are on the [roadmap](https://github.com/GeiserX/paperless-telegram-bot/blob/main/docs/ROADMAP.md).
 - It cannot take a file over 20 MB or send one back over 50 MB; those are Telegram's limits for bots, so larger files go through the Paperless web UI or its consume folder.
 - It changes a document's tags, correspondent, type and inbox state, nothing else: no title, date or content edits.
-- It runs on amd64 in Docker only; an arm64 host installs from source until the next release.
 
 ## Privacy
 
