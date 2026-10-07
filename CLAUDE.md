@@ -75,7 +75,7 @@ pre-commit run --all-files
 | Variable | Description |
 |----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
-| `PAPERLESS_URL` | Internal Paperless-NGX URL (e.g., `http://192.168.10.110:8000`) |
+| `PAPERLESS_URL` | Internal Paperless-NGX URL (e.g., `http://paperless.home:8000`) |
 | `PAPERLESS_TOKEN` | Paperless-NGX API token |
 
 ### Optional
