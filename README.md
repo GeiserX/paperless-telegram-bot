@@ -38,7 +38,7 @@ docker run -d --name paperless-telegram-bot --restart unless-stopped \
   -e PAPERLESS_URL=http://paperless.home:8000 \
   -e PAPERLESS_TOKEN=your_paperless_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:v0.7.1
+  drumsergio/paperless-telegram-bot:v0.7.2
 ```
 
 The image runs on amd64 and arm64. Without Docker, `pip install paperless-telegram-bot` (Python 3.11 or newer) gives you the same `paperless-bot run`; [Getting started](https://geiserx.github.io/paperless-telegram-bot/getting-started/#from-pypi) has the steps.
