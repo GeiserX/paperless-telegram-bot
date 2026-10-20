@@ -24,7 +24,7 @@ docker run -d \
   -e PAPERLESS_URL=http://paperless.home:8000 \
   -e PAPERLESS_TOKEN=your_paperless_api_token \
   -e TELEGRAM_ALLOWED_USERS=123456789 \
-  drumsergio/paperless-telegram-bot:v0.7.1
+  drumsergio/paperless-telegram-bot:v0.7.2
 ```
 
 ## Docker Compose
@@ -34,7 +34,7 @@ Put this next to a `.env` file holding `TELEGRAM_BOT_TOKEN`, `PAPERLESS_TOKEN` a
 ```yaml
 services:
   paperless-telegram-bot:
-    image: drumsergio/paperless-telegram-bot:v0.7.1
+    image: drumsergio/paperless-telegram-bot:v0.7.2
     container_name: paperless-telegram-bot
     restart: unless-stopped
     environment:
@@ -81,7 +81,7 @@ Start it from the clone's folder so it finds the `.env` there. `paperless-bot --
 The log, in this order (the timestamps and logger names are left out):
 
 ```
-Paperless Telegram Bot v0.7.1 starting...
+Paperless Telegram Bot v0.7.2 starting...
 Connected to Paperless-NGX <version> (API v<n>) at http://paperless:8000
 Health check endpoint running on port 8080
 Telegram bot configured
