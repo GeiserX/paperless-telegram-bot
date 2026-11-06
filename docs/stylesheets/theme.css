@@ -4,7 +4,7 @@
  * ink (#2b2118) and the tagline in a lighter brown (#7a6650). The header is
  * the ink, the text on it is the paper, and links are the tagline brown:
  * lightened to #c9a97a on the dark page (7.1:1 on #2b2118), as is on white
- * (5.5:1). mkdocs.yml sets `primary: custom` and `accent: custom`, so Material
+ * (5.5:1). zensical.toml sets `primary = "custom"` and `accent = "custom"`, so the theme
  * paints nothing until these variables exist.
  */
 :root {
@@ -26,9 +26,13 @@
   --md-typeset-a-color: #c9a97a;
 }
 
-/* Light scheme: the tagline brown itself, 5.5:1 on white. */
+/* Light scheme: the tagline brown itself, 5.5:1 on white. The accent too:
+   the modern theme marks the active nav entry in it, and the lightened
+   #c9a97a is 2.2:1 on white. */
 [data-md-color-scheme="default"] {
   --md-typeset-a-color: #7a6650;
+  --md-accent-fg-color: #7a6650;
+  --md-accent-fg-color--transparent: #7a66501a;
 }
 
 /* Fixed logo size so it does not crowd the site name. */
@@ -44,9 +48,15 @@
  * .md-header__topic and the page title in a second one, and swaps them on
  * scroll. Styling both would change every page title too. */
 .md-header__topic:first-child .md-ellipsis {
-  color: #eadcc6;
   font-weight: 800;
   letter-spacing: -0.01em;
+}
+
+/* That colour only on the dark scheme: Zensical's modern header takes the page
+   background, so on the light scheme it is white and a light name would vanish.
+   There the name keeps the default text colour. */
+[data-md-color-scheme="slate"] .md-header__topic:first-child .md-ellipsis {
+  color: #eadcc6;
 }
 
 /* Keep the mark and the name close, so they read as one unit. */

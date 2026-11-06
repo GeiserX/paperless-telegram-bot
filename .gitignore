@@ -45,7 +45,7 @@ htmlcov/
 .omc/
 .goal-loop/
 
-# MkDocs build output
+# Docs build output (Zensical)
 site/
 
 # Beads: bead text lives in the Dolt tracker only, never in git
