@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # The base image's ca-certificates 20250419 still trusts the compromised eMudhra
 # intermediates; trixie-security carries the release that distrusts them.
