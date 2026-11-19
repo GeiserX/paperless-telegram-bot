@@ -29,9 +29,9 @@ Fix: check that `PAPERLESS_URL` is reachable from the container and that `PAPERL
 
 ## Set Owner says "Failed to load users"
 
-Cause: the token user lacks the `view_user` permission (the message then names it), or Paperless could not be reached.
+Cause: the token user lacks the `view_user` permission (the message then names it), `PAPERLESS_TOKEN` is invalid or revoked, or Paperless could not be reached.
 
-Fix: give the token user the view permission on users in Paperless, and check that `PAPERLESS_URL` is reachable from the container.
+Fix: give the token user the view permission on users in Paperless, check that `PAPERLESS_TOKEN` is valid, and check that `PAPERLESS_URL` is reachable from the container. The bot's log shows the exact error.
 
 ## Reporting a bug
 
