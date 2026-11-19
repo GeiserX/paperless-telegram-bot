@@ -67,6 +67,7 @@ class Document:
     added: str
     content: str | None = None
     tag_ids: list[int] = field(default_factory=list)
+    user_can_change: bool = True
 
 
 @dataclass
@@ -537,4 +538,5 @@ class PaperlessClient:
             added=data.get("added", "")[:10],
             content=content or None,
             tag_ids=list(tag_ids),
+            user_can_change=data.get("user_can_change", True),
         )

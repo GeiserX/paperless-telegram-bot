@@ -840,7 +840,19 @@ class PaperlessBot:
 
         try:
             item_id = int(value)
-            await self.client.update_document(doc_id, **{field_name: item_id})
+            updated = await self.client.update_document(doc_id, **{field_name: item_id})
+
+            if field_name == "owner" and not updated.user_can_change:
+                # The bot token lost change rights, so further edits would fail.
+                self.pending_uploads.pop((chat_id, doc_id), None)
+                doc_url = self._document_url(doc_id)
+                await _safe_query_edit(
+                    query,
+                    "Owner set. The bot can no longer edit this document."
+                    f'\n\n<a href="{html.escape(doc_url)}">Open in Paperless</a>',
+                    parse_mode=ParseMode.HTML,
+                )
+                return
 
             # Get name from cache
             if field_name == "correspondent":

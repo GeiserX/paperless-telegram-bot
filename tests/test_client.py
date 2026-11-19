@@ -875,6 +875,14 @@ class TestParseDocument:
         assert doc.document_type is None
         assert doc.tags == []
 
+    def test_user_can_change_false_is_exposed(self, client):
+        data = _make_doc_response()
+        data["user_can_change"] = False
+        assert client._parse_document(data).user_can_change is False
+
+    def test_user_can_change_defaults_to_true_when_missing(self, client):
+        assert client._parse_document(_make_doc_response()).user_can_change is True
+
     def test_unknown_tag_id(self, client):
         client._tags_cache = {}
         data = _make_doc_response(tags=[999])

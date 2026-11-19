@@ -80,6 +80,7 @@ def _make_doc(
     created="2025-01-15",
     added="2025-01-15",
     content=None,
+    user_can_change=True,
 ):
     return Document(
         id=doc_id,
@@ -90,6 +91,7 @@ def _make_doc(
         created=created,
         added=added,
         content=content,
+        user_can_change=user_can_change,
     )
 
 
@@ -835,6 +837,37 @@ class TestCallbackHandler:
         assert ("Set Owner", "meta:owner:42") in buttons
         assert ("Done", "meta:done:42") in buttons
         bot.client.get_users.assert_not_called()
+
+    async def test_owner_select_reports_lost_edit_rights(self, bot):
+        update = _make_callback_update(chat_id=100, data="own:12:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client.update_document = AsyncMock(return_value=_make_doc(user_can_change=False))
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.update_document.assert_awaited_once_with(42, owner=12)
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0].startswith("Owner set. The bot can no longer edit this document.")
+        assert "Open in Paperless" in edit.await_args.args[0]
+        assert edit.await_args.kwargs["parse_mode"] == ParseMode.HTML
+        assert edit.await_args.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_owner_select_keeps_menu_when_still_editable(self, bot):
+        update = _make_callback_update(chat_id=100, data="own:12:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client.update_document = AsyncMock(return_value=_make_doc(user_can_change=True))
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner set.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
 
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
