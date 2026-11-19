@@ -694,6 +694,21 @@ class TestCallbackHandler:
         assert (100, 42) not in bot.pending_uploads
         bot.client.remove_inbox_tag.assert_awaited_once_with(42)
 
+    async def test_done_without_owner_selection(self, bot, monkeypatch):
+        update = _make_callback_update(chat_id=100, data="meta:done:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client.remove_inbox_tag = AsyncMock()
+        bot.client.update_document = AsyncMock()
+        get_users = AsyncMock()
+        monkeypatch.setattr(bot.client, "get_users", get_users, raising=False)
+
+        await bot.handle_callback(update, MagicMock())
+
+        get_users.assert_not_called()
+        bot.client.update_document.assert_not_called()
+        update.callback_query.edit_message_text.assert_awaited_once()
+        assert update.callback_query.edit_message_text.await_args.args[0].startswith("Metadata saved.")
+
     async def test_meta_done_remove_inbox_disabled(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
         bot.config.remove_inbox_on_done = False
