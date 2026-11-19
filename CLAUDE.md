@@ -37,7 +37,7 @@ pre-commit run --all-files
 - `src/paperless_bot/bot/keyboards.py` — Inline keyboard builders (metadata, tag selection, inbox with review buttons)
 - `src/paperless_bot/config.py` — Environment variables and configuration
 - `src/paperless_bot/__main__.py` — Entry point, health server, CLI
-- `tests/` — pytest test suite (`test_client.py` and `test_config.py` are maintained; `test_handlers.py` is stale)
+- `tests/` — pytest test suite (client, config, handlers, keyboards)
 - `docs/ROADMAP.md` — Planned features and future improvements
 - `Dockerfile` — Non-root Docker container
 - `pyproject.toml` — Package metadata and build config
