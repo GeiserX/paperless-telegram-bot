@@ -28,10 +28,10 @@ def _make_doc(doc_id=1, title="Test Doc"):
 
 
 class TestMetadataKeyboard:
-    def test_has_four_buttons(self):
+    def test_has_five_buttons(self):
         kb = build_metadata_keyboard(42)
         buttons = [btn for row in kb.inline_keyboard for btn in row]
-        assert len(buttons) == 4
+        assert len(buttons) == 5
 
     def test_callback_data_contains_doc_id(self):
         kb = build_metadata_keyboard(99)
@@ -45,6 +45,11 @@ class TestMetadataKeyboard:
         assert "Set Correspondent" in labels
         assert "Set Document Type" in labels
         assert "Done" in labels
+
+    def test_includes_set_owner(self):
+        kb = build_metadata_keyboard(42)
+        buttons = [(btn.text, btn.callback_data) for row in kb.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
 
 
 # ---------------------------------------------------------------------------

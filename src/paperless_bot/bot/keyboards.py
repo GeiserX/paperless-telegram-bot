@@ -25,8 +25,9 @@ def build_metadata_keyboard(doc_id: int) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("Set Document Type", callback_data=f"meta:dtype:{doc_id}"),
-                InlineKeyboardButton("Done", callback_data=f"meta:done:{doc_id}"),
+                InlineKeyboardButton("Set Owner", callback_data=f"meta:owner:{doc_id}"),
             ],
+            [InlineKeyboardButton("Done", callback_data=f"meta:done:{doc_id}")],
         ]
     )
 
