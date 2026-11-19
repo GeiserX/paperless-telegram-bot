@@ -4,11 +4,13 @@ import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 
-from paperless_bot.api.client import Document, TaskResult
+from paperless_bot.api.client import Document, TaskResult, User
 from paperless_bot.bot.handlers import (
     TELEGRAM_FILE_LIMIT,
     PaperlessBot,
@@ -79,6 +81,7 @@ def _make_doc(
     created="2025-01-15",
     added="2025-01-15",
     content=None,
+    user_can_change=True,
 ):
     return Document(
         id=doc_id,
@@ -89,6 +92,7 @@ def _make_doc(
         created=created,
         added=added,
         content=content,
+        user_can_change=user_can_change,
     )
 
 
@@ -686,6 +690,173 @@ class TestCallbackHandler:
         await bot.handle_callback(update, MagicMock())
         update.callback_query.edit_message_text.assert_awaited_once()
 
+    async def test_meta_owner_callback_sorts_user_buttons_by_username(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[User(12, "ben"), User(3, "Carl"), User(7, "anna")])
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.get_users.assert_awaited_once_with()
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        user_buttons = [
+            (button.text, button.callback_data)
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+            and button.callback_data.startswith("own:")
+            and button.callback_data.split(":")[1].isdigit()
+        ]
+        assert user_buttons == [("anna", "own:7:42"), ("ben", "own:12:42"), ("Carl", "own:3:42")]
+
+    async def test_meta_owner_callback_offers_skip_without_new_button(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[User(7, "anna")])
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Skip", "own:skip:42") in buttons
+        assert not any(label.startswith("+ New") for label, _ in buttons)
+
+    async def test_meta_owner_callback_reports_no_active_users(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[])
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert buttons == [("Skip", "own:skip:42")]
+        assert edit.await_args.args[0] == "No active Paperless users found."
+
+    async def test_meta_owner_load_failure_shows_generic_error(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to load users."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        assert not any(data.startswith("own:") for _, data in buttons)
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (403, 'Failed to load users: the API token lacks the "view_user" permission.'),
+            (500, "Failed to load users."),
+        ],
+    )
+    async def test_meta_owner_forbidden_names_view_user_permission(self, bot, status, expected):
+        update = _make_callback_update(data="meta:owner:42")
+        request = httpx.Request("GET", "http://localhost:8000/api/users/")
+        error = httpx.HTTPStatusError("error", request=request, response=httpx.Response(status, request=request))
+        bot.client.get_users = AsyncMock(side_effect=error)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == expected
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        assert not any(data.startswith("own:") for _, data in buttons)
+
+    async def test_ownp_load_failure_shows_error_with_metadata_menu(self, bot):
+        update = _make_callback_update(data="ownp:1:42")
+        bot.client.get_users = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to load users."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+
+    async def test_owner_update_failure_shows_failed_message(self, bot):
+        update = _make_callback_update(data="own:12:42")
+        request = httpx.Request("PATCH", "http://localhost:8000/api/documents/42/")
+        error = httpx.HTTPStatusError("Forbidden", request=request, response=httpx.Response(403, request=request))
+        bot.client.update_document = AsyncMock(side_effect=error)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to update owner."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+
+    async def test_owner_skip_returns_to_metadata_without_writing(self, bot):
+        update = _make_callback_update(data="own:skip:42")
+        bot.client.update_document = AsyncMock()
+        bot.client.get_users = AsyncMock()
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner skipped.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        bot.client.update_document.assert_not_called()
+        bot.client.get_users.assert_not_called()
+
+    async def test_owner_select_updates_only_owner_and_returns_to_metadata(self, bot):
+        update = _make_callback_update(data="own:12:42")
+        bot.client.update_document = AsyncMock()
+        bot.client.get_document = AsyncMock(return_value=_make_doc(user_can_change=True))
+        bot.client.get_users = AsyncMock()
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.update_document.assert_awaited_once_with(42, owner=12)
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner set.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        bot.client.get_users.assert_not_called()
+
+    async def test_owner_select_keeps_menu_when_still_editable(self, bot):
+        update = _make_callback_update(chat_id=100, data="own:12:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client.update_document = AsyncMock(return_value=_make_doc())
+        bot.client.get_document = AsyncMock(return_value=_make_doc(user_can_change=True))
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.get_document.assert_awaited_once_with(42)
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner set.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
+
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
         bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
@@ -693,6 +864,21 @@ class TestCallbackHandler:
         await bot.handle_callback(update, MagicMock())
         assert (100, 42) not in bot.pending_uploads
         bot.client.remove_inbox_tag.assert_awaited_once_with(42)
+
+    async def test_done_without_owner_selection(self, bot, monkeypatch):
+        update = _make_callback_update(chat_id=100, data="meta:done:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        bot.client.remove_inbox_tag = AsyncMock()
+        bot.client.update_document = AsyncMock()
+        get_users = AsyncMock()
+        monkeypatch.setattr(bot.client, "get_users", get_users, raising=False)
+
+        await bot.handle_callback(update, MagicMock())
+
+        get_users.assert_not_called()
+        bot.client.update_document.assert_not_called()
+        update.callback_query.edit_message_text.assert_awaited_once()
+        assert update.callback_query.edit_message_text.await_args.args[0].startswith("Metadata saved.")
 
     async def test_meta_done_remove_inbox_disabled(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
@@ -822,6 +1008,26 @@ class TestCallbackHandler:
         bot.client._doc_types_cache = {i: f"type{i}" for i in range(20)}
         await bot.handle_callback(update, MagicMock())
         update.callback_query.edit_message_reply_markup.assert_awaited_once()
+
+    async def test_ownp_pagination_fetches_users_and_shows_last_username(self, bot):
+        update = _make_callback_update(data="ownp:1:42")
+        users = [User(user_id, f"user{number}") for user_id, number in enumerate(range(9, 0, -1), start=1)]
+        bot.client.get_users = AsyncMock(return_value=users)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_reply_markup
+        edit.assert_awaited_once()
+        bot.client.get_users.assert_awaited_once_with()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        owner_buttons = [
+            (label, data) for label, data in buttons if (data or "").startswith("own:") and data != "own:skip:42"
+        ]
+        assert owner_buttons == [("user9", "own:1:42")]
+        assert ("< Prev", "ownp:0:42") in buttons
+        assert ("Skip", "own:skip:42") in buttons
+        assert not any(label.startswith("+ New") for label, _ in buttons)
 
     async def test_newtag_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="newtag:42")
@@ -1190,3 +1396,161 @@ class TestRestoreFailure:
         await bot._create_new_item(update, MagicMock(), 100, "NewTag", {"type": "tag", "doc_id": 42})
         msg = update.message.reply_text.call_args.args[0]
         assert "created" in msg and "couldn't be reached" in msg
+
+
+# ---------------------------------------------------------------------------
+# Owner handover against Paperless's real response shapes
+# ---------------------------------------------------------------------------
+
+PAPERLESS = "http://localhost:8000"
+
+
+def _patch_body(doc_id=42, owner=12):
+    """A PATCH answer as Paperless sends it: full permissions, no user_can_change."""
+    return {
+        "id": doc_id,
+        "title": "Invoice",
+        "tags": [1],
+        "owner": owner,
+        "permissions": {"view": {"users": [], "groups": []}, "change": {"users": [], "groups": []}},
+    }
+
+
+def _get_body(doc_id=42, owner=12, *, user_can_change):
+    """A GET answer as Paperless sends it: user_can_change, no permissions."""
+    return {"id": doc_id, "title": "Invoice", "tags": [1], "owner": owner, "user_can_change": user_can_change}
+
+
+class TestOwnerHandover:
+    @pytest.fixture(autouse=True)
+    def _paperless(self, bot):
+        bot.client._tags_cache = {1: "Inbox"}
+        bot.client._inbox_tag_id = 1
+        bot.client._cache_loaded_at = time.monotonic()
+        with respx.mock(base_url=PAPERLESS, assert_all_called=False) as router:
+            yield router
+
+    async def _pick_owner(self, bot):
+        update = _make_callback_update(chat_id=100, data="own:12:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        await bot.handle_callback(update, MagicMock())
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        return edit.await_args
+
+    async def test_lost_view_after_patch_closes_menu(self, bot, _paperless):
+        patch_route = _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert patch_route.calls.last.request.content == b'{"owner":12}'
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "Open in Paperless" in call.args[0]
+        assert call.kwargs["parse_mode"] == ParseMode.HTML
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_lost_edit_after_patch_closes_menu(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(user_can_change=False))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer edit this document.")
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_still_editable_keeps_menu(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(user_can_change=True))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Owner set.\n\nContinue setting metadata?"
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
+
+    async def test_paperless_2_patch_404_after_handover_closes_menu(self, bot, _paperless):
+        # Paperless 2.x changes the owner, then re-reads the document through
+        # the permission filter and answers 404.
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "No Document"}))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "No Document"}))
+
+        call = await self._pick_owner(bot)
+
+        assert "The bot can no longer see this document" in call.args[0]
+        assert not call.args[0].startswith("Failed")
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_patch_404_on_visible_document_is_a_failure(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(owner=7, user_can_change=True))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Failed to update owner."
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+
+    async def test_lost_access_warns_that_inbox_tag_stays(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert "inbox tag" in call.args[0]
+
+    async def test_lost_access_no_inbox_note_when_removal_disabled(self, bot, _paperless):
+        bot.config.remove_inbox_on_done = False
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "inbox tag" not in call.args[0]
+
+    async def test_lost_access_no_inbox_note_without_inbox_tag(self, bot, _paperless):
+        bot.client._inbox_tag_id = None
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "inbox tag" not in call.args[0]
+
+    @pytest.mark.parametrize(
+        "get_answer",
+        [httpx.Response(500, text="Server Error"), httpx.ConnectError("unreachable")],
+        ids=["get-500", "get-unreachable"],
+    )
+    async def test_access_check_failure_keeps_menu(self, bot, _paperless, get_answer):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(side_effect=[get_answer])
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Owner set.\n\nContinue setting metadata?"
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
+
+    async def test_patch_403_is_a_failure_even_if_document_is_hidden(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(403, json={"detail": "Forbidden"}))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Failed to update owner."
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons

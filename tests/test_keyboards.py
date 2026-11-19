@@ -28,10 +28,10 @@ def _make_doc(doc_id=1, title="Test Doc"):
 
 
 class TestMetadataKeyboard:
-    def test_has_four_buttons(self):
+    def test_has_five_buttons(self):
         kb = build_metadata_keyboard(42)
         buttons = [btn for row in kb.inline_keyboard for btn in row]
-        assert len(buttons) == 4
+        assert len(buttons) == 5
 
     def test_callback_data_contains_doc_id(self):
         kb = build_metadata_keyboard(99)
@@ -45,6 +45,11 @@ class TestMetadataKeyboard:
         assert "Set Correspondent" in labels
         assert "Set Document Type" in labels
         assert "Done" in labels
+
+    def test_includes_set_owner(self):
+        kb = build_metadata_keyboard(42)
+        buttons = [(btn.text, btn.callback_data) for row in kb.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +190,23 @@ class TestSingleSelectKeyboard:
         nav_row = kb.inline_keyboard[-2]
         next_btn = [btn for btn in nav_row if "Next" in btn.text][0]
         assert next_btn.callback_data == "corrp:1:42"
+
+    def test_owner_pagination_without_new_button(self):
+        items = [(i, f"user{i}") for i in range(1, 10)]
+        pages = [
+            (0, items[:8], ("Next >", "ownp:1:42")),
+            (1, items[8:], ("< Prev", "ownp:0:42")),
+        ]
+        for page, page_items, navigation in pages:
+            kb = build_single_select_keyboard(items, "own", doc_id=42, page=page, allow_new=False)
+            buttons = [(btn.text, btn.callback_data) for row in kb.inline_keyboard for btn in row]
+            owner_buttons = [
+                (label, data) for label, data in buttons if (data or "").startswith("own:") and data != "own:skip:42"
+            ]
+            assert owner_buttons == [(name, f"own:{user_id}:42") for user_id, name in page_items]
+            assert navigation in buttons
+            assert ("Skip", "own:skip:42") in buttons
+            assert not any(label.startswith("+ New") for label, _ in buttons)
 
     def test_long_name_truncated(self):
         items = [(1, "a" * 100)]

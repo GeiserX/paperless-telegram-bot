@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import time
 
+import httpx
 from telegram import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
@@ -569,6 +570,12 @@ class PaperlessBot:
         # Document type pagination
         elif data.startswith("dtypep:"):
             await self._handle_select_page(update, context, chat_id, data, "dtype")
+        # Owner selection
+        elif data.startswith("own:"):
+            await self._handle_single_select(update, context, chat_id, data, "owner")
+        # Owner pagination
+        elif data.startswith("ownp:"):
+            await self._handle_select_page(update, context, chat_id, data, "own")
         # Mark as reviewed (remove inbox tag)
         elif data.startswith("rev:"):
             doc_id = int(data.split(":")[1])
@@ -641,6 +648,24 @@ class PaperlessBot:
 
     # --- Metadata flow ---
 
+    async def _owner_items(self) -> list[tuple[int, str]]:
+        """Return owner IDs and usernames sorted by username."""
+        active_users = await self.client.get_users()
+        return [(user.id, user.username) for user in sorted(active_users, key=lambda user: user.username.casefold())]
+
+    async def _load_owners_or_report(self, query, doc_id: int) -> list[tuple[int, str]] | None:
+        """Load owner items; on failure tell the user, show the metadata menu and return None."""
+        try:
+            return await self._owner_items()
+        except Exception as exc:
+            logger.exception("Failed to load users for document %s", doc_id)
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 403:
+                text = 'Failed to load users: the API token lacks the "view_user" permission.'
+            else:
+                text = "Failed to load users."
+            await _safe_query_edit(query, text, reply_markup=build_metadata_keyboard(doc_id))
+            return None
+
     async def _handle_metadata(self, update, context, chat_id: int, data: str):
         """Handle metadata menu button presses."""
         query = update.callback_query
@@ -678,6 +703,16 @@ class PaperlessBot:
                 query,
                 "Select document type:",
                 reply_markup=build_single_select_keyboard(doc_types, "dtype", doc_id),
+            )
+
+        elif action == "owner":
+            owners = await self._load_owners_or_report(query, doc_id)
+            if owners is None:
+                return
+            await _safe_query_edit(
+                query,
+                "Select owner:" if owners else "No active Paperless users found.",
+                reply_markup=build_single_select_keyboard(owners, "own", doc_id, allow_new=False),
             )
 
         elif action == "done":
@@ -789,7 +824,7 @@ class PaperlessBot:
                 await _safe_query_edit(query, "Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
 
     async def _handle_single_select(self, update, context, chat_id: int, data: str, field_name: str):
-        """Handle single-select (correspondent or document type)."""
+        """Handle single-select (correspondent, document type, or owner)."""
         query = update.callback_query
         parts = data.split(":")
         value = parts[1]
@@ -805,6 +840,9 @@ class PaperlessBot:
 
         try:
             item_id = int(value)
+            if field_name == "owner":
+                await self._set_owner(query, chat_id, doc_id, item_id)
+                return
             await self.client.update_document(doc_id, **{field_name: item_id})
 
             # Get name from cache
@@ -826,21 +864,85 @@ class PaperlessBot:
                 reply_markup=build_metadata_keyboard(doc_id),
             )
 
+    async def _document_access(self, doc_id: int) -> str | None:
+        """Return "change", "view" or "none" for the bot's token, or None if Paperless did not answer."""
+        try:
+            doc = await self.client.get_document(doc_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return "none"
+            logger.warning("Could not check access to document %d", doc_id, exc_info=True)
+            return None
+        except httpx.HTTPError:
+            logger.warning("Could not check access to document %d", doc_id, exc_info=True)
+            return None
+        return "change" if doc.user_can_change else "view"
+
+    async def _set_owner(self, query, chat_id: int, doc_id: int, owner_id: int):
+        """Change only the owner, then close the menu if the bot lost access to the document.
+
+        A PATCH answer never carries user_can_change, so access is checked with a GET.
+        Paperless 2.x answers the PATCH itself with 404 when the bot can no longer
+        see the document, even though the owner did change.
+        """
+        patch_error = None
+        try:
+            await self.client.update_document(doc_id, owner=owner_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise
+            patch_error = exc
+
+        access = await self._document_access(doc_id)
+        if access == "none":
+            if patch_error is None:
+                text = "Owner set. The bot can no longer see this document."
+            else:
+                text = "The bot can no longer see this document, so its owner most likely changed."
+        elif patch_error is not None:
+            raise patch_error
+        elif access == "view":
+            text = "Owner set. The bot can no longer edit this document."
+        else:
+            await _safe_query_edit(
+                query,
+                "Owner set.\n\nContinue setting metadata?",
+                reply_markup=build_metadata_keyboard(doc_id),
+            )
+            return
+
+        # Further edits from the bot would fail, so close the menu.
+        self.pending_uploads.pop((chat_id, doc_id), None)
+        if self.config.remove_inbox_on_done and self.client._inbox_tag_id:
+            text += " Remove its inbox tag in Paperless if it still has one."
+        doc_url = self._document_url(doc_id)
+        await _safe_query_edit(
+            query,
+            f'{text}\n\n<a href="{html.escape(doc_url)}">Open in Paperless</a>',
+            parse_mode=ParseMode.HTML,
+        )
+
     async def _handle_select_page(self, update, context, chat_id: int, data: str, prefix: str):
-        """Handle pagination for correspondent/document type selection."""
+        """Handle pagination for correspondent, document type, and owner selection."""
         query = update.callback_query
         parts = data.split(":")
         page = int(parts[1])
         doc_id = int(parts[2])
 
+        allow_new = True
         if prefix == "corr":
             items = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
+        elif prefix == "own":
+            items = await self._load_owners_or_report(query, doc_id)
+            if items is None:
+                return
+            allow_new = False
         else:
             items = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
 
         await _safe_query_edit(
             query,
-            reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page),
+            reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page, allow_new=allow_new),
         )
 
     # --- Mark reviewed ---

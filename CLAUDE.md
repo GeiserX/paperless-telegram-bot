@@ -37,7 +37,7 @@ pre-commit run --all-files
 - `src/paperless_bot/bot/keyboards.py` — Inline keyboard builders (metadata, tag selection, inbox with review buttons)
 - `src/paperless_bot/config.py` — Environment variables and configuration
 - `src/paperless_bot/__main__.py` — Entry point, health server, CLI
-- `tests/` — pytest test suite (`test_client.py` and `test_config.py` are maintained; `test_handlers.py` is stale)
+- `tests/` — pytest test suite (client, config, handlers, keyboards)
 - `docs/ROADMAP.md` — Planned features and future improvements
 - `Dockerfile` — Non-root Docker container
 - `pyproject.toml` — Package metadata and build config
@@ -100,13 +100,14 @@ Telegram's `callback_data` has a **64-byte limit**. All callback prefixes are ke
 
 | Prefix | Purpose |
 |--------|---------|
-| `meta:tags:`, `meta:corr:`, `meta:dtype:`, `meta:done:` | Metadata menu actions |
+| `meta:tags:`, `meta:corr:`, `meta:dtype:`, `meta:owner:`, `meta:done:` | Metadata menu actions |
 | `tag:x:`, `tag:o:` | Tag toggle (checked/unchecked) |
 | `tagp:`, `tagok:` | Tag pagination, confirm |
 | `newtag:`, `newcorr:`, `newdtype:` | Create new metadata item |
 | `ccr:` | Cancel create |
 | `corr:`, `corrp:` | Correspondent select, paginate |
 | `dtype:`, `dtypep:` | Document type select, paginate |
+| `own:`, `ownp:` | Owner select (user ID or `skip`), paginate |
 | `dl:` | Download document |
 | `sp:` | Search pagination |
 | `rev:` | Mark as reviewed (remove inbox tag) |

@@ -67,6 +67,7 @@ class Document:
     added: str
     content: str | None = None
     tag_ids: list[int] = field(default_factory=list)
+    user_can_change: bool = True
 
 
 @dataclass
@@ -94,6 +95,12 @@ class Correspondent:
 class DocumentType:
     id: int
     name: str
+
+
+@dataclass
+class User:
+    id: int
+    username: str
 
 
 class PaperlessClient:
@@ -453,6 +460,13 @@ class PaperlessClient:
         self._doc_types_cache[dt.id] = dt.name
         return dt
 
+    # --- Users ---
+
+    async def get_users(self) -> list[User]:
+        """Get all active users."""
+        results = await self._get_all_pages("/api/users/")
+        return [User(id=u["id"], username=u["username"]) for u in results if u.get("is_active", True)]
+
     # --- Stats ---
 
     async def get_statistics(self) -> dict:
@@ -524,4 +538,5 @@ class PaperlessClient:
             added=data.get("added", "")[:10],
             content=content or None,
             tag_ids=list(tag_ids),
+            user_can_change=data.get("user_can_change", True),
         )

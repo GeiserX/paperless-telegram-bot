@@ -11,6 +11,7 @@ from paperless_bot.api.client import (
     PaperlessClient,
     Tag,
     TaskResult,
+    User,
 )
 
 
@@ -720,6 +721,42 @@ class TestCorrespondents:
 
 
 # ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+
+class TestUsers:
+    @respx.mock
+    async def test_get_active_users_from_all_pages(self, client):
+        url = "http://localhost:8000/api/users/"
+        respx.get(url, params={"page": 1}).mock(
+            return_value=Response(
+                200,
+                json={
+                    "results": [{"id": 12, "username": "ben", "is_active": True}],
+                    "next": f"{url}?page=2",
+                },
+            )
+        )
+        respx.get(url, params={"page": 2}).mock(
+            return_value=Response(
+                200,
+                json={
+                    "results": [
+                        {"id": 7, "username": "anna", "is_active": True},
+                        {"id": 19, "username": "clara", "is_active": False},
+                    ],
+                    "next": None,
+                },
+            )
+        )
+
+        users = await client.get_users()
+
+        assert sorted(users, key=lambda user: user.id) == [User(7, "anna"), User(12, "ben")]
+
+
+# ---------------------------------------------------------------------------
 # Document types
 # ---------------------------------------------------------------------------
 
@@ -837,6 +874,14 @@ class TestParseDocument:
         assert doc.correspondent is None
         assert doc.document_type is None
         assert doc.tags == []
+
+    def test_user_can_change_false_is_exposed(self, client):
+        data = _make_doc_response()
+        data["user_can_change"] = False
+        assert client._parse_document(data).user_can_change is False
+
+    def test_user_can_change_defaults_to_true_when_missing(self, client):
+        assert client._parse_document(_make_doc_response()).user_can_change is True
 
     def test_unknown_tag_id(self, client):
         client._tags_cache = {}
@@ -1051,3 +1096,13 @@ class TestDownloadSizeCap:
         data, filename = await client.download_document(1, max_bytes=100)
         assert data == b"ok"
         assert filename == "a.pdf"
+
+
+async def test_get_users_keeps_users_without_is_active(client):
+    respx.get("http://localhost:8000/api/users/").mock(
+        return_value=Response(200, json={"results": [{"id": 3, "username": "zoe"}], "next": None})
+    )
+
+    users = await client.get_users()
+
+    assert users == [User(id=3, username="zoe")]
