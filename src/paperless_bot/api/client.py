@@ -465,7 +465,7 @@ class PaperlessClient:
     async def get_users(self) -> list[User]:
         """Get all active users."""
         results = await self._get_all_pages("/api/users/")
-        return [User(id=u["id"], username=u["username"]) for u in results if u.get("is_active")]
+        return [User(id=u["id"], username=u["username"]) for u in results if u.get("is_active", True)]
 
     # --- Stats ---
 

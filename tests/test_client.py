@@ -1096,3 +1096,13 @@ class TestDownloadSizeCap:
         data, filename = await client.download_document(1, max_bytes=100)
         assert data == b"ok"
         assert filename == "a.pdf"
+
+
+async def test_get_users_keeps_users_without_is_active(client):
+    respx.get("http://localhost:8000/api/users/").mock(
+        return_value=Response(200, json={"results": [{"id": 3, "username": "zoe"}], "next": None})
+    )
+
+    users = await client.get_users()
+
+    assert users == [User(id=3, username="zoe")]
