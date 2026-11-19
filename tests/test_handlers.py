@@ -692,7 +692,7 @@ class TestCallbackHandler:
 
     async def test_meta_owner_callback_sorts_user_buttons_by_username(self, bot):
         update = _make_callback_update(data="meta:owner:42")
-        bot.client.get_users = AsyncMock(return_value=[User(12, "ben"), User(7, "anna")])
+        bot.client.get_users = AsyncMock(return_value=[User(12, "ben"), User(3, "Carl"), User(7, "anna")])
 
         await bot.handle_callback(update, MagicMock())
 
@@ -708,7 +708,7 @@ class TestCallbackHandler:
             and button.callback_data.startswith("own:")
             and button.callback_data.split(":")[1].isdigit()
         ]
-        assert user_buttons == [("anna", "own:7:42"), ("ben", "own:12:42")]
+        assert user_buttons == [("anna", "own:7:42"), ("ben", "own:12:42"), ("Carl", "own:3:42")]
 
     async def test_meta_owner_callback_offers_skip_without_new_button(self, bot):
         update = _make_callback_update(data="meta:owner:42")
@@ -1518,3 +1518,39 @@ class TestOwnerHandover:
 
         assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
         assert "inbox tag" not in call.args[0]
+
+    async def test_lost_access_no_inbox_note_without_inbox_tag(self, bot, _paperless):
+        bot.client._inbox_tag_id = None
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "inbox tag" not in call.args[0]
+
+    @pytest.mark.parametrize(
+        "get_answer",
+        [httpx.Response(500, text="Server Error"), httpx.ConnectError("unreachable")],
+        ids=["get-500", "get-unreachable"],
+    )
+    async def test_access_check_failure_keeps_menu(self, bot, _paperless, get_answer):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(side_effect=[get_answer])
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Owner set.\n\nContinue setting metadata?"
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
+
+    async def test_patch_403_is_a_failure_even_if_document_is_hidden(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(403, json={"detail": "Forbidden"}))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Failed to update owner."
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
