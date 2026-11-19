@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
@@ -731,6 +732,75 @@ class TestCallbackHandler:
         buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
         assert buttons == [("Skip", "own:skip:42")]
         assert edit.await_args.args[0] == "No active Paperless users found."
+
+    async def test_meta_owner_load_failure_shows_generic_error(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to load users."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        assert not any(data.startswith("own:") for _, data in buttons)
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (403, 'Failed to load users: the API token lacks the "view_user" permission.'),
+            (500, "Failed to load users."),
+        ],
+    )
+    async def test_meta_owner_forbidden_names_view_user_permission(self, bot, status, expected):
+        update = _make_callback_update(data="meta:owner:42")
+        request = httpx.Request("GET", "http://localhost:8000/api/users/")
+        error = httpx.HTTPStatusError("error", request=request, response=httpx.Response(status, request=request))
+        bot.client.get_users = AsyncMock(side_effect=error)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == expected
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        assert not any(data.startswith("own:") for _, data in buttons)
+
+    async def test_ownp_load_failure_shows_error_with_metadata_menu(self, bot):
+        update = _make_callback_update(data="ownp:1:42")
+        bot.client.get_users = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to load users."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+
+    async def test_owner_update_failure_shows_failed_message(self, bot):
+        update = _make_callback_update(data="own:12:42")
+        request = httpx.Request("PATCH", "http://localhost:8000/api/documents/42/")
+        error = httpx.HTTPStatusError("Forbidden", request=request, response=httpx.Response(403, request=request))
+        bot.client.update_document = AsyncMock(side_effect=error)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Failed to update owner."
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
 
     async def test_owner_skip_returns_to_metadata_without_writing(self, bot):
         update = _make_callback_update(data="own:skip:42")

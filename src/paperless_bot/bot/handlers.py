@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import time
 
+import httpx
 from telegram import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
@@ -652,6 +653,19 @@ class PaperlessBot:
         active_users = await self.client.get_users()
         return [(user.id, user.username) for user in sorted(active_users, key=lambda user: user.username)]
 
+    async def _load_owners_or_report(self, query, doc_id: int) -> list[tuple[int, str]] | None:
+        """Load owner items; on failure tell the user, show the metadata menu and return None."""
+        try:
+            return await self._owner_items()
+        except Exception as exc:
+            logger.exception("Failed to load users for document %s", doc_id)
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 403:
+                text = 'Failed to load users: the API token lacks the "view_user" permission.'
+            else:
+                text = "Failed to load users."
+            await _safe_query_edit(query, text, reply_markup=build_metadata_keyboard(doc_id))
+            return None
+
     async def _handle_metadata(self, update, context, chat_id: int, data: str):
         """Handle metadata menu button presses."""
         query = update.callback_query
@@ -692,7 +706,9 @@ class PaperlessBot:
             )
 
         elif action == "owner":
-            owners = await self._owner_items()
+            owners = await self._load_owners_or_report(query, doc_id)
+            if owners is None:
+                return
             await _safe_query_edit(
                 query,
                 "Select owner:" if owners else "No active Paperless users found.",
@@ -860,7 +876,9 @@ class PaperlessBot:
         if prefix == "corr":
             items = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
         elif prefix == "own":
-            items = await self._owner_items()
+            items = await self._load_owners_or_report(query, doc_id)
+            if items is None:
+                return
             allow_new = False
         else:
             items = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
