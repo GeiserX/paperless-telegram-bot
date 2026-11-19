@@ -706,6 +706,32 @@ class TestCallbackHandler:
         ]
         assert user_buttons == [("anna", "own:7:42"), ("ben", "own:12:42")]
 
+    async def test_meta_owner_callback_offers_skip_without_new_button(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[User(7, "anna")])
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Skip", "own:skip:42") in buttons
+        assert not any(label.startswith("+ New") for label, _ in buttons)
+
+    async def test_meta_owner_callback_reports_no_active_users(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[])
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert buttons == [("Skip", "own:skip:42")]
+        assert edit.await_args.args[0] == "No active Paperless users found."
+
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
         bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
@@ -857,6 +883,26 @@ class TestCallbackHandler:
         bot.client._doc_types_cache = {i: f"type{i}" for i in range(20)}
         await bot.handle_callback(update, MagicMock())
         update.callback_query.edit_message_reply_markup.assert_awaited_once()
+
+    async def test_ownp_pagination_fetches_users_and_shows_last_username(self, bot):
+        update = _make_callback_update(data="ownp:1:42")
+        users = [User(user_id, f"user{number}") for user_id, number in enumerate(range(9, 0, -1), start=1)]
+        bot.client.get_users = AsyncMock(return_value=users)
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_reply_markup
+        edit.assert_awaited_once()
+        bot.client.get_users.assert_awaited_once_with()
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        owner_buttons = [
+            (label, data) for label, data in buttons if (data or "").startswith("own:") and data != "own:skip:42"
+        ]
+        assert owner_buttons == [("user9", "own:1:42")]
+        assert ("< Prev", "ownp:0:42") in buttons
+        assert ("Skip", "own:skip:42") in buttons
+        assert not any(label.startswith("+ New") for label, _ in buttons)
 
     async def test_newtag_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="newtag:42")

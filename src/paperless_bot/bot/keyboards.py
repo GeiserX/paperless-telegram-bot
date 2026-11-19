@@ -79,8 +79,10 @@ def build_single_select_keyboard(
     doc_id: int,
     page: int = 0,
     page_size: int = TAGS_PAGE_SIZE,
+    *,
+    allow_new: bool = True,
 ) -> InlineKeyboardMarkup:
-    """Build paginated single-select keyboard for correspondents or document types."""
+    """Build a paginated single-select keyboard with optional item creation."""
     start = page * page_size
     end = min(start + page_size, len(items))
 
@@ -100,15 +102,14 @@ def build_single_select_keyboard(
     if nav_row:
         buttons.append(nav_row)
 
-    # Determine the "+ New" callback prefix
-    new_prefix = f"new{callback_prefix}"  # newcorr or newdtype
-    new_label = "+ New Correspondent" if callback_prefix == "corr" else "+ New Type"
-    buttons.append(
-        [
-            InlineKeyboardButton(new_label, callback_data=f"{new_prefix}:{doc_id}"),
-            InlineKeyboardButton("Skip", callback_data=f"{callback_prefix}:skip:{doc_id}"),
-        ]
-    )
+    action_row = []
+    if allow_new:
+        # Determine the "+ New" callback prefix
+        new_prefix = f"new{callback_prefix}"  # newcorr or newdtype
+        new_label = "+ New Correspondent" if callback_prefix == "corr" else "+ New Type"
+        action_row.append(InlineKeyboardButton(new_label, callback_data=f"{new_prefix}:{doc_id}"))
+    action_row.append(InlineKeyboardButton("Skip", callback_data=f"{callback_prefix}:skip:{doc_id}"))
+    buttons.append(action_row)
     return InlineKeyboardMarkup(buttons)
 
 

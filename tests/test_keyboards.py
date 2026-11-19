@@ -191,6 +191,23 @@ class TestSingleSelectKeyboard:
         next_btn = [btn for btn in nav_row if "Next" in btn.text][0]
         assert next_btn.callback_data == "corrp:1:42"
 
+    def test_owner_pagination_without_new_button(self):
+        items = [(i, f"user{i}") for i in range(1, 10)]
+        pages = [
+            (0, items[:8], ("Next >", "ownp:1:42")),
+            (1, items[8:], ("< Prev", "ownp:0:42")),
+        ]
+        for page, page_items, navigation in pages:
+            kb = build_single_select_keyboard(items, "own", doc_id=42, page=page, allow_new=False)
+            buttons = [(btn.text, btn.callback_data) for row in kb.inline_keyboard for btn in row]
+            owner_buttons = [
+                (label, data) for label, data in buttons if (data or "").startswith("own:") and data != "own:skip:42"
+            ]
+            assert owner_buttons == [(name, f"own:{user_id}:42") for user_id, name in page_items]
+            assert navigation in buttons
+            assert ("Skip", "own:skip:42") in buttons
+            assert not any(label.startswith("+ New") for label, _ in buttons)
+
     def test_long_name_truncated(self):
         items = [(1, "a" * 100)]
         kb = build_single_select_keyboard(items, "corr", doc_id=42)

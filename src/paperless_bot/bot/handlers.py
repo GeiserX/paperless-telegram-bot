@@ -569,6 +569,9 @@ class PaperlessBot:
         # Document type pagination
         elif data.startswith("dtypep:"):
             await self._handle_select_page(update, context, chat_id, data, "dtype")
+        # Owner pagination
+        elif data.startswith("ownp:"):
+            await self._handle_select_page(update, context, chat_id, data, "own")
         # Mark as reviewed (remove inbox tag)
         elif data.startswith("rev:"):
             doc_id = int(data.split(":")[1])
@@ -641,6 +644,11 @@ class PaperlessBot:
 
     # --- Metadata flow ---
 
+    async def _owner_items(self) -> list[tuple[int, str]]:
+        """Return owner IDs and usernames sorted by username."""
+        active_users = await self.client.get_users()
+        return [(user.id, user.username) for user in sorted(active_users, key=lambda user: user.username)]
+
     async def _handle_metadata(self, update, context, chat_id: int, data: str):
         """Handle metadata menu button presses."""
         query = update.callback_query
@@ -681,12 +689,11 @@ class PaperlessBot:
             )
 
         elif action == "owner":
-            active_users = await self.client.get_users()
-            users = [(u.id, u.username) for u in sorted(active_users, key=lambda u: u.username)]
+            owners = await self._owner_items()
             await _safe_query_edit(
                 query,
-                "Select owner:",
-                reply_markup=build_single_select_keyboard(users, "own", doc_id),
+                "Select owner:" if owners else "No active Paperless users found.",
+                reply_markup=build_single_select_keyboard(owners, "own", doc_id, allow_new=False),
             )
 
         elif action == "done":
@@ -836,20 +843,24 @@ class PaperlessBot:
             )
 
     async def _handle_select_page(self, update, context, chat_id: int, data: str, prefix: str):
-        """Handle pagination for correspondent/document type selection."""
+        """Handle pagination for correspondent, document type, and owner selection."""
         query = update.callback_query
         parts = data.split(":")
         page = int(parts[1])
         doc_id = int(parts[2])
 
+        allow_new = True
         if prefix == "corr":
             items = sorted(self.client._correspondents_cache.items(), key=lambda x: x[1])
+        elif prefix == "own":
+            items = await self._owner_items()
+            allow_new = False
         else:
             items = sorted(self.client._doc_types_cache.items(), key=lambda x: x[1])
 
         await _safe_query_edit(
             query,
-            reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page),
+            reply_markup=build_single_select_keyboard(items, prefix, doc_id, page=page, allow_new=allow_new),
         )
 
     # --- Mark reviewed ---
