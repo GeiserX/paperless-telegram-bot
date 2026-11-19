@@ -651,7 +651,7 @@ class PaperlessBot:
     async def _owner_items(self) -> list[tuple[int, str]]:
         """Return owner IDs and usernames sorted by username."""
         active_users = await self.client.get_users()
-        return [(user.id, user.username) for user in sorted(active_users, key=lambda user: user.username)]
+        return [(user.id, user.username) for user in sorted(active_users, key=lambda user: user.username.casefold())]
 
     async def _load_owners_or_report(self, query, doc_id: int) -> list[tuple[int, str]] | None:
         """Load owner items; on failure tell the user, show the metadata menu and return None."""
