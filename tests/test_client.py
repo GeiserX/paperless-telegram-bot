@@ -11,6 +11,7 @@ from paperless_bot.api.client import (
     PaperlessClient,
     Tag,
     TaskResult,
+    User,
 )
 
 
@@ -717,6 +718,42 @@ class TestCorrespondents:
         corr = await client.create_correspondent("NewCorp")
         assert corr.id == 3
         assert client._correspondents_cache[3] == "NewCorp"
+
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+
+class TestUsers:
+    @respx.mock
+    async def test_get_active_users_from_all_pages(self, client):
+        url = "http://localhost:8000/api/users/"
+        respx.get(url, params={"page": 1}).mock(
+            return_value=Response(
+                200,
+                json={
+                    "results": [{"id": 12, "username": "ben", "is_active": True}],
+                    "next": f"{url}?page=2",
+                },
+            )
+        )
+        respx.get(url, params={"page": 2}).mock(
+            return_value=Response(
+                200,
+                json={
+                    "results": [
+                        {"id": 7, "username": "anna", "is_active": True},
+                        {"id": 19, "username": "clara", "is_active": False},
+                    ],
+                    "next": None,
+                },
+            )
+        )
+
+        users = await client.get_users()
+
+        assert sorted(users, key=lambda user: user.id) == [User(7, "anna"), User(12, "ben")]
 
 
 # ---------------------------------------------------------------------------

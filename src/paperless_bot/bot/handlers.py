@@ -680,6 +680,15 @@ class PaperlessBot:
                 reply_markup=build_single_select_keyboard(doc_types, "dtype", doc_id),
             )
 
+        elif action == "owner":
+            active_users = await self.client.get_users()
+            users = [(u.id, u.username) for u in sorted(active_users, key=lambda u: u.username)]
+            await _safe_query_edit(
+                query,
+                "Select owner:",
+                reply_markup=build_single_select_keyboard(users, "own", doc_id),
+            )
+
         elif action == "done":
             self.pending_uploads.pop((chat_id, doc_id), None)
             doc_url = self._document_url(doc_id)

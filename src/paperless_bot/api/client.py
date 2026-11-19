@@ -96,6 +96,12 @@ class DocumentType:
     name: str
 
 
+@dataclass
+class User:
+    id: int
+    username: str
+
+
 class PaperlessClient:
     """Async HTTP client for Paperless-NGX API."""
 
@@ -452,6 +458,13 @@ class PaperlessClient:
         dt = DocumentType(id=data["id"], name=data["name"])
         self._doc_types_cache[dt.id] = dt.name
         return dt
+
+    # --- Users ---
+
+    async def get_users(self) -> list[User]:
+        """Get all active users."""
+        results = await self._get_all_pages("/api/users/")
+        return [User(id=u["id"], username=u["username"]) for u in results if u.get("is_active")]
 
     # --- Stats ---
 

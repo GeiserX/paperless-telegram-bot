@@ -8,7 +8,7 @@ import pytest
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 
-from paperless_bot.api.client import Document, TaskResult
+from paperless_bot.api.client import Document, TaskResult, User
 from paperless_bot.bot.handlers import (
     TELEGRAM_FILE_LIMIT,
     PaperlessBot,
@@ -685,6 +685,26 @@ class TestCallbackHandler:
         bot.client._doc_types_cache = {1: "Bill"}
         await bot.handle_callback(update, MagicMock())
         update.callback_query.edit_message_text.assert_awaited_once()
+
+    async def test_meta_owner_callback_sorts_user_buttons_by_username(self, bot):
+        update = _make_callback_update(data="meta:owner:42")
+        bot.client.get_users = AsyncMock(return_value=[User(12, "ben"), User(7, "anna")])
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.get_users.assert_awaited_once_with()
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        markup = edit.await_args.kwargs["reply_markup"]
+        user_buttons = [
+            (button.text, button.callback_data)
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+            and button.callback_data.startswith("own:")
+            and button.callback_data.split(":")[1].isdigit()
+        ]
+        assert user_buttons == [("anna", "own:7:42"), ("ben", "own:12:42")]
 
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
