@@ -4,13 +4,13 @@ Open your bot in Telegram. Everything below happens in that one chat. `/start` a
 
 ## Upload
 
-Send a file or a photo. The bot uploads it to Paperless-ngx, waits for Paperless to process it, and then shows the document's title with four buttons: Set Tags, Set Correspondent, Set Document Type and Done. A file sent as a document keeps its file name, which Paperless uses as the title; a photo is named after the time it was sent. Files over 20 MB are refused with a message, because Telegram does not let bots download anything larger; add those through the Paperless web UI or its consume folder.
+Send a file or a photo. The bot uploads it to Paperless-ngx, waits for Paperless to process it, and then shows the document's title with five buttons: Set Tags, Set Correspondent, Set Document Type, Set Owner and Done. A file sent as a document keeps its file name, which Paperless uses as the title; a photo is named after the time it was sent. Files over 20 MB are refused with a message, because Telegram does not let bots download anything larger; add those through the Paperless web UI or its consume folder.
 
 If Paperless already has the same file, the bot says which document it is and offers it for download instead of storing it twice.
 
-## Tags, correspondent and document type
+## Tags, correspondent, document type and owner
 
-Set Tags opens a paged list with a box per tag; tap to tick or untick, then Confirm Tags. Set Correspondent and Set Document Type open a single-choice list each, with Skip. Every list has a + New button that asks for a name in the chat and creates the item in Paperless. Done finishes and, unless `REMOVE_INBOX_ON_DONE=false`, removes the inbox tag; the reply links the document in Paperless.
+Set Tags opens a paged list with a box per tag; tap to tick or untick, then Confirm Tags. Set Correspondent and Set Document Type open a single-choice list each, with Skip. The tag, correspondent and document type lists have a + New button that asks for a name in the chat and creates the item in Paperless. Set Owner is optional: it opens a paged single-choice list of the active Paperless users, sorted by username, with Skip and no + New button, because the bot does not create users. Choosing a user changes only the document's owner; without a choice the document keeps the owner Paperless gave it, usually the user of the bot's API token. If the bot's token can no longer edit the document after the change, the bot says so, links the document and closes the menu. Done finishes and, unless `REMOVE_INBOX_ON_DONE=false`, removes the inbox tag; the reply links the document in Paperless.
 
 ## Search
 

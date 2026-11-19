@@ -27,6 +27,12 @@ Cause: `/health` on `HEALTH_PORT` (8080) asks Paperless for one document with yo
 
 Fix: check that `PAPERLESS_URL` is reachable from the container and that `PAPERLESS_TOKEN` is valid (`docker inspect --format '{{json .State.Health}}' paperless-telegram-bot` shows the last health check).
 
+## Set Owner says "Failed to load users"
+
+Cause: the token user lacks the `view_user` permission (the message then names it), or Paperless could not be reached.
+
+Fix: give the token user the view permission on users in Paperless, and check that `PAPERLESS_URL` is reachable from the container.
+
 ## Reporting a bug
 
 Open an [issue](https://github.com/GeiserX/paperless-telegram-bot/issues) with:

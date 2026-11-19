@@ -100,13 +100,14 @@ Telegram's `callback_data` has a **64-byte limit**. All callback prefixes are ke
 
 | Prefix | Purpose |
 |--------|---------|
-| `meta:tags:`, `meta:corr:`, `meta:dtype:`, `meta:done:` | Metadata menu actions |
+| `meta:tags:`, `meta:corr:`, `meta:dtype:`, `meta:owner:`, `meta:done:` | Metadata menu actions |
 | `tag:x:`, `tag:o:` | Tag toggle (checked/unchecked) |
 | `tagp:`, `tagok:` | Tag pagination, confirm |
 | `newtag:`, `newcorr:`, `newdtype:` | Create new metadata item |
 | `ccr:` | Cancel create |
 | `corr:`, `corrp:` | Correspondent select, paginate |
 | `dtype:`, `dtypep:` | Document type select, paginate |
+| `own:`, `ownp:` | Owner select (user ID or `skip`), paginate |
 | `dl:` | Download document |
 | `sp:` | Search pagination |
 | `rev:` | Mark as reviewed (remove inbox tag) |
