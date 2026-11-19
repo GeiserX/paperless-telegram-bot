@@ -108,7 +108,7 @@ Get the three values first: the bot token from [@BotFather](https://t.me/BotFath
 ## What it does
 
 - Send a photo or any file up to 20 MB (Telegram's limit for bots) and it is uploaded to Paperless; the reply changes to the document's title once Paperless has processed it.
-- Tag it, pick the correspondent and the document type from inline keyboards right after the upload, or create a new tag, correspondent or type without leaving the chat.
+- Tag it, pick the correspondent, the document type and, optionally, its owner in Paperless from inline keyboards right after the upload, or create a new tag, correspondent or type without leaving the chat.
 - A file Paperless already has is not stored twice: the bot names the existing document and offers it for download.
 - Type any text to search the archive; results come in pages, each with a Download button. `/search` does the same.
 - `/inbox` lists what still carries the inbox tag; Reviewed clears it with one tap, and so does Done after an upload.
