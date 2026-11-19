@@ -732,6 +732,40 @@ class TestCallbackHandler:
         assert buttons == [("Skip", "own:skip:42")]
         assert edit.await_args.args[0] == "No active Paperless users found."
 
+    async def test_owner_skip_returns_to_metadata_without_writing(self, bot):
+        update = _make_callback_update(data="own:skip:42")
+        bot.client.update_document = AsyncMock()
+        bot.client.get_users = AsyncMock()
+
+        await bot.handle_callback(update, MagicMock())
+
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner skipped.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        bot.client.update_document.assert_not_called()
+        bot.client.get_users.assert_not_called()
+
+    async def test_owner_select_updates_only_owner_and_returns_to_metadata(self, bot):
+        update = _make_callback_update(data="own:12:42")
+        bot.client.update_document = AsyncMock()
+        bot.client.get_users = AsyncMock()
+
+        await bot.handle_callback(update, MagicMock())
+
+        bot.client.update_document.assert_awaited_once_with(42, owner=12)
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        assert edit.await_args.args[0] == "Owner set.\n\nContinue setting metadata?"
+        markup = edit.await_args.kwargs["reply_markup"]
+        buttons = [(btn.text, btn.callback_data) for row in markup.inline_keyboard for btn in row]
+        assert ("Set Owner", "meta:owner:42") in buttons
+        assert ("Done", "meta:done:42") in buttons
+        bot.client.get_users.assert_not_called()
+
     async def test_meta_done_callback(self, bot):
         update = _make_callback_update(chat_id=100, data="meta:done:42")
         bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}

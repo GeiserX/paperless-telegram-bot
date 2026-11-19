@@ -569,6 +569,9 @@ class PaperlessBot:
         # Document type pagination
         elif data.startswith("dtypep:"):
             await self._handle_select_page(update, context, chat_id, data, "dtype")
+        # Owner selection
+        elif data.startswith("own:"):
+            await self._handle_single_select(update, context, chat_id, data, "owner")
         # Owner pagination
         elif data.startswith("ownp:"):
             await self._handle_select_page(update, context, chat_id, data, "own")
@@ -805,7 +808,7 @@ class PaperlessBot:
                 await _safe_query_edit(query, "Failed to update tags.", reply_markup=build_metadata_keyboard(doc_id))
 
     async def _handle_single_select(self, update, context, chat_id: int, data: str, field_name: str):
-        """Handle single-select (correspondent or document type)."""
+        """Handle single-select (correspondent, document type, or owner)."""
         query = update.callback_query
         parts = data.split(":")
         value = parts[1]
@@ -826,12 +829,16 @@ class PaperlessBot:
             # Get name from cache
             if field_name == "correspondent":
                 name = self.client._correspondents_cache.get(item_id, f"#{item_id}")
-            else:
+            elif field_name == "document_type":
                 name = self.client._doc_types_cache.get(item_id, f"#{item_id}")
+            else:
+                name = None  # users are not cached
 
+            label = field_name.replace("_", " ").title()
+            text = f"{label} set: {name}" if name else f"{label} set."
             await _safe_query_edit(
                 query,
-                f"{field_name.replace('_', ' ').title()} set: {name}\n\nContinue setting metadata?",
+                f"{text}\n\nContinue setting metadata?",
                 reply_markup=build_metadata_keyboard(doc_id),
             )
         except Exception:
