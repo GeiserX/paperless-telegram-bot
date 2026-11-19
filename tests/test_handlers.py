@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import respx
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, TimedOut
 
@@ -824,6 +825,7 @@ class TestCallbackHandler:
     async def test_owner_select_updates_only_owner_and_returns_to_metadata(self, bot):
         update = _make_callback_update(data="own:12:42")
         bot.client.update_document = AsyncMock()
+        bot.client.get_document = AsyncMock(return_value=_make_doc(user_can_change=True))
         bot.client.get_users = AsyncMock()
 
         await bot.handle_callback(update, MagicMock())
@@ -838,29 +840,15 @@ class TestCallbackHandler:
         assert ("Done", "meta:done:42") in buttons
         bot.client.get_users.assert_not_called()
 
-    async def test_owner_select_reports_lost_edit_rights(self, bot):
-        update = _make_callback_update(chat_id=100, data="own:12:42")
-        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
-        bot.client.update_document = AsyncMock(return_value=_make_doc(user_can_change=False))
-
-        await bot.handle_callback(update, MagicMock())
-
-        bot.client.update_document.assert_awaited_once_with(42, owner=12)
-        edit = update.callback_query.edit_message_text
-        edit.assert_awaited_once()
-        assert edit.await_args.args[0].startswith("Owner set. The bot can no longer edit this document.")
-        assert "Open in Paperless" in edit.await_args.args[0]
-        assert edit.await_args.kwargs["parse_mode"] == ParseMode.HTML
-        assert edit.await_args.kwargs.get("reply_markup") is None
-        assert (100, 42) not in bot.pending_uploads
-
     async def test_owner_select_keeps_menu_when_still_editable(self, bot):
         update = _make_callback_update(chat_id=100, data="own:12:42")
         bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
-        bot.client.update_document = AsyncMock(return_value=_make_doc(user_can_change=True))
+        bot.client.update_document = AsyncMock(return_value=_make_doc())
+        bot.client.get_document = AsyncMock(return_value=_make_doc(user_can_change=True))
 
         await bot.handle_callback(update, MagicMock())
 
+        bot.client.get_document.assert_awaited_once_with(42)
         edit = update.callback_query.edit_message_text
         edit.assert_awaited_once()
         assert edit.await_args.args[0] == "Owner set.\n\nContinue setting metadata?"
@@ -1408,3 +1396,125 @@ class TestRestoreFailure:
         await bot._create_new_item(update, MagicMock(), 100, "NewTag", {"type": "tag", "doc_id": 42})
         msg = update.message.reply_text.call_args.args[0]
         assert "created" in msg and "couldn't be reached" in msg
+
+
+# ---------------------------------------------------------------------------
+# Owner handover against Paperless's real response shapes
+# ---------------------------------------------------------------------------
+
+PAPERLESS = "http://localhost:8000"
+
+
+def _patch_body(doc_id=42, owner=12):
+    """A PATCH answer as Paperless sends it: full permissions, no user_can_change."""
+    return {
+        "id": doc_id,
+        "title": "Invoice",
+        "tags": [1],
+        "owner": owner,
+        "permissions": {"view": {"users": [], "groups": []}, "change": {"users": [], "groups": []}},
+    }
+
+
+def _get_body(doc_id=42, owner=12, *, user_can_change):
+    """A GET answer as Paperless sends it: user_can_change, no permissions."""
+    return {"id": doc_id, "title": "Invoice", "tags": [1], "owner": owner, "user_can_change": user_can_change}
+
+
+class TestOwnerHandover:
+    @pytest.fixture(autouse=True)
+    def _paperless(self, bot):
+        bot.client._tags_cache = {1: "Inbox"}
+        bot.client._inbox_tag_id = 1
+        bot.client._cache_loaded_at = time.monotonic()
+        with respx.mock(base_url=PAPERLESS, assert_all_called=False) as router:
+            yield router
+
+    async def _pick_owner(self, bot):
+        update = _make_callback_update(chat_id=100, data="own:12:42")
+        bot.pending_uploads[(100, 42)] = {"selected_tags": set(), "ts": time.monotonic()}
+        await bot.handle_callback(update, MagicMock())
+        edit = update.callback_query.edit_message_text
+        edit.assert_awaited_once()
+        return edit.await_args
+
+    async def test_lost_view_after_patch_closes_menu(self, bot, _paperless):
+        patch_route = _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert patch_route.calls.last.request.content == b'{"owner":12}'
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "Open in Paperless" in call.args[0]
+        assert call.kwargs["parse_mode"] == ParseMode.HTML
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_lost_edit_after_patch_closes_menu(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(user_can_change=False))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer edit this document.")
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_still_editable_keeps_menu(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(user_can_change=True))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Owner set.\n\nContinue setting metadata?"
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+        assert (100, 42) in bot.pending_uploads
+
+    async def test_paperless_2_patch_404_after_handover_closes_menu(self, bot, _paperless):
+        # Paperless 2.x changes the owner, then re-reads the document through
+        # the permission filter and answers 404.
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "No Document"}))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "No Document"}))
+
+        call = await self._pick_owner(bot)
+
+        assert "The bot can no longer see this document" in call.args[0]
+        assert not call.args[0].startswith("Failed")
+        assert call.kwargs.get("reply_markup") is None
+        assert (100, 42) not in bot.pending_uploads
+
+    async def test_patch_404_on_visible_document_is_a_failure(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+        _paperless.get("/api/documents/42/").mock(
+            return_value=httpx.Response(200, json=_get_body(owner=7, user_can_change=True))
+        )
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0] == "Failed to update owner."
+        buttons = [(b.text, b.callback_data) for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+        assert ("Done", "meta:done:42") in buttons
+
+    async def test_lost_access_warns_that_inbox_tag_stays(self, bot, _paperless):
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert "inbox tag" in call.args[0]
+
+    async def test_lost_access_no_inbox_note_when_removal_disabled(self, bot, _paperless):
+        bot.config.remove_inbox_on_done = False
+        _paperless.patch("/api/documents/42/").mock(return_value=httpx.Response(200, json=_patch_body()))
+        _paperless.get("/api/documents/42/").mock(return_value=httpx.Response(404, json={"detail": "Not found."}))
+
+        call = await self._pick_owner(bot)
+
+        assert call.args[0].startswith("Owner set. The bot can no longer see this document.")
+        assert "inbox tag" not in call.args[0]
